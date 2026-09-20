@@ -256,3 +256,39 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildCodexUsageProgressFromExtra_WindowStatsAvailability(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+
+	longOnly := map[string]any{
+		"codex_5h_used_percent":               0.0,
+		"codex_5h_reset_at":                   now.Format(time.RFC3339),
+		"codex_5h_window_minutes":             0,
+		"codex_5h_reset_after_seconds":        0,
+		"codex_7d_used_percent":               20.0,
+		"codex_7d_reset_at":                   now.Add(30 * 24 * time.Hour).Format(time.RFC3339),
+		"codex_7d_window_minutes":             43200,
+		"codex_primary_window_minutes":        43200,
+		"codex_primary_reset_after_seconds":   30 * 24 * 60 * 60,
+		"codex_secondary_window_minutes":      0,
+		"codex_secondary_reset_after_seconds": 0,
+	}
+
+	fiveHour := buildCodexUsageProgressFromExtra(longOnly, "5h", now)
+	if fiveHour == nil || fiveHour.HasWindowStats {
+		t.Fatalf("long-only account must not expose synthetic 5h stats window: %#v", fiveHour)
+	}
+	sevenDay := buildCodexUsageProgressFromExtra(longOnly, "7d", now)
+	if sevenDay == nil || !sevenDay.HasWindowStats || sevenDay.WindowMinutes != 43200 {
+		t.Fatalf("long-only account must expose its long stats window: %#v", sevenDay)
+	}
+
+	withShortWindow := map[string]any{
+		"codex_5h_used_percent":   12.0,
+		"codex_5h_reset_at":       now.Add(2 * time.Hour).Format(time.RFC3339),
+		"codex_5h_window_minutes": 300,
+	}
+	if progress := buildCodexUsageProgressFromExtra(withShortWindow, "5h", now); progress == nil || !progress.HasWindowStats {
+		t.Fatalf("real 5h account must expose 5h stats window: %#v", progress)
+	}
+}

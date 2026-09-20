@@ -152,6 +152,12 @@ type UsageProgress struct {
 	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
 	UsedRequests     int64        `json:"used_requests,omitempty"`
 	LimitRequests    int64        `json:"limit_requests,omitempty"`
+	// WindowMinutes is kept internal so local usage statistics follow the
+	// upstream window when it differs from the legacy 5h/7d fallback.
+	WindowMinutes int `json:"-"`
+	// HasWindowStats is false for synthetic compatibility rows such as the
+	// 5h=0 row emitted for accounts that only have a long quota window.
+	HasWindowStats bool `json:"-"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -752,18 +758,19 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 		return usage, nil
 	}
 
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
-		if usage.FiveHour == nil {
-			usage.FiveHour = &UsageProgress{Utilization: 0}
+	// Keep each counter aligned with its corresponding real upstream window.
+	// Accounts with only a long quota have a synthetic 5h=0 row; do not query
+	// a fake 5h window and do not copy the long-window counters into it.
+	if usage.FiveHour != nil && usage.FiveHour.HasWindowStats {
+		if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.FiveHour, 5*time.Hour, now)); err == nil {
+			usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 		}
-		usage.FiveHour.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
-	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
-		if usage.SevenDay == nil {
-			usage.SevenDay = &UsageProgress{Utilization: 0}
+	if usage.SevenDay != nil && usage.SevenDay.HasWindowStats {
+		if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
+			usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 		}
-		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}
 
 	return usage, nil
@@ -1508,6 +1515,27 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	}
 
 	progress := &UsageProgress{Utilization: parseExtraFloat64(usedRaw)}
+	windowMinutesKey := "codex_5h_window_minutes"
+	if window == "7d" {
+		windowMinutesKey = "codex_7d_window_minutes"
+	}
+	if windowMinutes := parseExtraInt(extra[windowMinutesKey]); windowMinutes > 0 {
+		progress.WindowMinutes = windowMinutes
+		progress.HasWindowStats = true
+	}
+	if parseExtraInt(extra[resetAfterKey]) > 0 {
+		progress.HasWindowStats = true
+	}
+	if window == "7d" {
+		if _, ok := extra[resetAtKey]; ok {
+			progress.HasWindowStats = true
+		}
+	} else if !progress.HasWindowStats && hasLegacyCodexResetAt(extra, resetAtKey) {
+		// Preserve old snapshots that only stored codex_5h_reset_at. Newer
+		// long-only snapshots also carry raw primary/secondary metadata; those
+		// must remain synthetic instead of falling back to a fake 5h window.
+		progress.HasWindowStats = true
+	}
 	if resetAtRaw, ok := extra[resetAtKey]; ok {
 		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
 			progress.ResetsAt = &resetAt
@@ -1542,7 +1570,27 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 	return progress
 }
 
+func hasLegacyCodexResetAt(extra map[string]any, resetAtKey string) bool {
+	if _, ok := extra[resetAtKey]; !ok {
+		return false
+	}
+	for _, key := range []string{
+		"codex_primary_window_minutes",
+		"codex_primary_reset_after_seconds",
+		"codex_secondary_window_minutes",
+		"codex_secondary_reset_after_seconds",
+	} {
+		if _, ok := extra[key]; ok {
+			return false
+		}
+	}
+	return true
+}
+
 func codexWindowStatsStart(progress *UsageProgress, fallbackWindow time.Duration, now time.Time) time.Time {
+	if progress != nil && progress.WindowMinutes > 0 {
+		fallbackWindow = time.Duration(progress.WindowMinutes) * time.Minute
+	}
 	if progress != nil && progress.ResetsAt != nil && now.Before(*progress.ResetsAt) {
 		return progress.ResetsAt.Add(-fallbackWindow)
 	}
