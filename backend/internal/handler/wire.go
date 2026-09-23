@@ -50,10 +50,13 @@ func ProvideAdminHandlers(
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	opencodeGoUsage *service.OpenCodeGoUsageService,
+	reauthRepository service.OpenAIReauthJobRepository,
+	reauthWorker *service.OpenAIReauthWorker,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)
+	openaiOAuthHandler.SetReauthRepository(reauthRepository, reauthWorker.Enabled())
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,

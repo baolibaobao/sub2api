@@ -278,6 +278,12 @@ git fetch upstream
 git rebase upstream/main
 ```
 
+#### Fork 分支清理提醒（2026-09-23）
+
+- 当前官方基线为 `main`；自定义开发保存在 `custom/sub2api-0.2.8`。
+- `codex/custom-features-before-0.2.8-20260923` 是升级前的临时快照。现在保留；下一次完成官方版本同步，并确认自定义分支包含所需提交且部署验证通过后，删除该远端快照分支并清理本地跟踪引用。
+- 删除前用 `git merge-base --is-ancestor codex/custom-features-before-0.2.8-20260923 <新自定义分支>` 确认快照提交仍可从新自定义分支到达。不要删除活动自定义分支或官方 `main`。
+
 ### 前端操作
 
 ```bash
@@ -309,6 +315,13 @@ go test -tags=integration ./...
 # Lint 检查
 golangci-lint run ./...
 ```
+
+### 生产服务器构建规则
+
+- Sub2API 必须在本地完成编译/镜像构建，再上传构建产物；不要在生产服务器上编译，避免小规格服务器 CPU/内存过载。
+- 上传和线上验证完成前，保留本地构建目录及缓存；确认上传成功后再清理临时编译文件和下载缓存。
+- 服务器上的旧版本备份只保留一份，更新备份时先确认当前运行版本和回滚点。
+- Codex OAuth reauth 默认关闭、并发默认 1；每个活动任务会启动 Chromium，配置并发最多为 2。
 
 ## 六、项目结构速览
 

@@ -35,6 +35,23 @@ func (s *OpenAIOAuthService) SetPrivacyClientFactory(factory PrivacyClientFactor
 	s.privacyClientFactory = factory
 }
 
+func (s *OpenAIOAuthService) ProxyURL(ctx context.Context, proxyID *int64) (string, error) {
+	if proxyID == nil {
+		return "", nil
+	}
+	if s == nil || s.proxyRepo == nil {
+		return "", infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy repository is not configured")
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
+	if err != nil {
+		return "", infraerrors.Newf(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy lookup failed: %v", err)
+	}
+	if proxy == nil {
+		return "", infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy not found")
+	}
+	return proxy.URL(), nil
+}
+
 // OpenAIAuthURLResult contains the authorization URL and session info
 type OpenAIAuthURLResult struct {
 	AuthURL   string `json:"auth_url"`

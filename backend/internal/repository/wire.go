@@ -71,6 +71,9 @@ var ProviderSet = wire.NewSet(
 	NewAdminGroupRepository,
 	NewCompositeModelRouteRepository,
 	NewAccountRepository,
+	NewOpenAIReauthRepository,
+	NewChromiumOpenAIReauthBrowser,
+	ProvideOpenAIReauthProfileCipher,
 	NewAdminAccountRepository,
 	NewScheduledTestPlanRepository,   // 定时测试计划仓储
 	NewScheduledTestResultRepository, // 定时测试结果仓储

@@ -96,6 +96,7 @@ type Config struct {
 	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
 	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
 	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
+	OpenAIReauth            OpenAIReauthConfig            `mapstructure:"openai_reauth"`
 	SimpleMode              SimpleModeConfig              `mapstructure:"simple_mode" yaml:"simple_mode"`
 	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
@@ -665,6 +666,16 @@ type TokenRefreshConfig struct {
 	AttemptTimeoutSeconds int `mapstructure:"attempt_timeout_seconds"`
 	// 单个后台刷新周期的总超时（秒）
 	CycleTimeoutSeconds int `mapstructure:"cycle_timeout_seconds"`
+}
+
+type OpenAIReauthConfig struct {
+	Enabled                  bool   `mapstructure:"enabled"`
+	KeyringFile              string `mapstructure:"keyring_file"`
+	Concurrency              int    `mapstructure:"concurrency"`
+	ScanIntervalSeconds      int    `mapstructure:"scan_interval_seconds"`
+	PollIntervalMilliseconds int    `mapstructure:"poll_interval_milliseconds"`
+	JobTimeoutSeconds        int    `mapstructure:"job_timeout_seconds"`
+	LeaseSeconds             int    `mapstructure:"lease_seconds"`
 }
 
 type PricingConfig struct {
@@ -2564,6 +2575,15 @@ func setDefaults() {
 	viper.SetDefault("token_refresh.provider_failure_threshold", 3)
 	viper.SetDefault("token_refresh.attempt_timeout_seconds", 15)
 	viper.SetDefault("token_refresh.cycle_timeout_seconds", 240)
+
+	// OpenAI OAuth reauthorization stays opt-in; Chromium is started only per job.
+	viper.SetDefault("openai_reauth.enabled", false)
+	viper.SetDefault("openai_reauth.keyring_file", "")
+	viper.SetDefault("openai_reauth.concurrency", 1)
+	viper.SetDefault("openai_reauth.scan_interval_seconds", 300)
+	viper.SetDefault("openai_reauth.poll_interval_milliseconds", 1000)
+	viper.SetDefault("openai_reauth.job_timeout_seconds", 180)
+	viper.SetDefault("openai_reauth.lease_seconds", 240)
 
 	// Gemini OAuth - configure via environment variables or config file
 	// GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET

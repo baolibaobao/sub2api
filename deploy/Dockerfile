@@ -93,6 +93,7 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     curl \
+    chromium \
     su-exec \
     && rm -rf /var/cache/apk/*
 

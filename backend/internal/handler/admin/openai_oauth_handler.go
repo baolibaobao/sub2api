@@ -23,6 +23,13 @@ type OpenAIOAuthHandler struct {
 	quotaService       openAIQuotaService
 	referralService    openAIReferralService
 	rateLimitService   openAIAccountStateRecoverer
+	reauthRepository   service.OpenAIReauthJobRepository
+	reauthEnabled      bool
+}
+
+func (h *OpenAIOAuthHandler) SetReauthRepository(repo service.OpenAIReauthJobRepository, enabled bool) {
+	h.reauthRepository = repo
+	h.reauthEnabled = enabled
 }
 
 type openAIQuotaService interface {

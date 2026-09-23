@@ -107,12 +107,27 @@ func (r *OpenAITokenRefresher) NeedsRefresh(account *Account, refreshWindow time
 	if strings.TrimSpace(account.GetOpenAIRefreshToken()) == "" {
 		return false
 	}
+	// A persisted upstream 401 is stronger evidence than expires_at. Reuse
+	// the normal refresh-token flow once instead of waiting for token expiry.
+	if isOpenAIOAuth401PendingRefresh(account) {
+		return true
+	}
 	expiresAt := account.GetCredentialAsTime("expires_at")
 	if expiresAt == nil {
 		return account.IsRateLimited()
 	}
 
 	return time.Until(*expiresAt) < refreshWindow
+}
+
+func isOpenAIOAuth401PendingRefresh(account *Account) bool {
+	if account == nil ||
+		account.Platform != PlatformOpenAI ||
+		account.Type != AccountTypeOAuth ||
+		account.Status != StatusActive {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(account.TempUnschedulableReason), "OAuth 401:")
 }
 
 // Refresh 执行token刷新

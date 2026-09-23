@@ -81,6 +81,23 @@ describe('AccountStatusIndicator', () => {
     expect(wrapper.text()).not.toContain('claude-sonnet-5')
   })
 
+  it('仅为 OpenAI OAuth 显示只读的认证诊断标签', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          platform: 'openai',
+          type: 'oauth',
+          status: 'error',
+          error_message: 'Token revoked (401): account authentication permanently revoked'
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.oauthDiagnostic.credentials_rejected.label')
+    expect(wrapper.find('[title="admin.accounts.status.oauthDiagnostic.credentials_rejected.hint"]').exists()).toBe(true)
+  })
+
   it('Grok 账号额度限流时显示自动恢复时间而非临时不可调度', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

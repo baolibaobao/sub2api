@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"os"
 	"time"
 
@@ -116,6 +117,45 @@ func ProvideOpenAIOAuthService(
 	svc := NewOpenAIOAuthService(proxyRepo, oauthClient)
 	svc.SetPrivacyClientFactory(privacyClientFactory)
 	return svc
+}
+
+func ProvideOpenAIReauthProvider(openaiOAuth *OpenAIOAuthService, browser OpenAIReauthBrowser) OpenAIReauthProvider {
+	return NewOpenAIReauthOAuthProvider(openaiOAuth, browser)
+}
+
+func ProvideOpenAIReauthWorker(
+	repo OpenAIReauthJobRepository,
+	provider OpenAIReauthProvider,
+	browser OpenAIReauthBrowser,
+	openaiOAuth *OpenAIOAuthService,
+	cacheInvalidator TokenCacheInvalidator,
+	cipher OpenAIReauthProfileCipher,
+	cfg *config.Config,
+) *OpenAIReauthWorker {
+	reauthConfig := config.OpenAIReauthConfig{}
+	if cfg != nil {
+		reauthConfig = cfg.OpenAIReauth
+	}
+	enabled := reauthConfig.Enabled && cipher != nil
+	if reauthConfig.Enabled && cipher == nil {
+		slog.Warn("openai_reauth.disabled", "reason", "keyring unavailable")
+	}
+	if availability, ok := browser.(interface{ Available() bool }); enabled && ok && !availability.Available() {
+		enabled = false
+		slog.Warn("openai_reauth.disabled", "reason", "Chromium is unavailable")
+	}
+	worker := NewOpenAIReauthWorker(repo, provider, openaiOAuth, cacheInvalidator, OpenAIReauthWorkerOptions{
+		Enabled:         enabled,
+		Concurrency:     reauthConfig.Concurrency,
+		ScanInterval:    time.Duration(reauthConfig.ScanIntervalSeconds) * time.Second,
+		PollInterval:    time.Duration(reauthConfig.PollIntervalMilliseconds) * time.Millisecond,
+		JobTimeout:      time.Duration(reauthConfig.JobTimeoutSeconds) * time.Second,
+		LeaseDuration:   time.Duration(reauthConfig.LeaseSeconds) * time.Second,
+		CandidateBatch:  100,
+		MaxRetryBackoff: 30 * time.Minute,
+	})
+	worker.Start()
+	return worker
 }
 
 // ProvideTokenRefreshService creates and starts TokenRefreshService
@@ -881,6 +921,8 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
+	ProvideOpenAIReauthProvider,
+	ProvideOpenAIReauthWorker,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	NewGeminiOAuthService,

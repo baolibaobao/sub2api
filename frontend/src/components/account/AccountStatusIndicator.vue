@@ -33,7 +33,7 @@
     </template>
 
     <!-- Error Info Indicator -->
-    <div v-if="hasError && account.error_message" class="group/error relative">
+      <div v-if="hasError && account.error_message" class="group/error relative">
       <svg
         class="h-4 w-4 cursor-help text-red-500 transition-colors hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
         fill="none"
@@ -60,6 +60,15 @@
         ></div>
       </div>
     </div>
+
+    <span
+      v-if="oauthDiagnostic"
+      class="badge text-xs"
+      :class="oauthDiagnosticClass"
+      :title="t(`admin.accounts.status.oauthDiagnostic.${oauthDiagnostic}.hint`)"
+    >
+      {{ t(`admin.accounts.status.oauthDiagnostic.${oauthDiagnostic}.label`) }}
+    </span>
 
     <!-- Rate Limit Indicator (429) -->
     <div v-if="isRateLimited" class="group relative">
@@ -163,6 +172,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
+import { classifyOpenAIOAuthDiagnostic } from '@/utils/openaiOAuthDiagnostic'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
 const { t } = useI18n()
@@ -281,6 +291,17 @@ const isTempUnschedulable = computed(() => {
 // Computed: has error status
 const hasError = computed(() => {
   return props.account.status === 'error'
+})
+
+const oauthDiagnostic = computed(() => classifyOpenAIOAuthDiagnostic(props.account))
+const oauthDiagnosticClass = computed(() => {
+  if (oauthDiagnostic.value === 'credentials_rejected' || oauthDiagnostic.value === 'refresh_token_missing') {
+    return 'badge-danger'
+  }
+  if (oauthDiagnostic.value === 'upstream_401_cooldown' || oauthDiagnostic.value === 'refresh_retry_exhausted') {
+    return 'badge-warning'
+  }
+  return 'badge-gray'
 })
 
 const isQuotaExceeded = computed(() => {

@@ -93,6 +93,16 @@ services:
       # =======================================================================
       - TZ=${TZ:-Asia/Shanghai}
 
+      # OpenAI/Codex OAuth reauthorization (disabled by default)
+      - OPENAI_REAUTH_ENABLED=${OPENAI_REAUTH_ENABLED:-false}
+      - OPENAI_REAUTH_KEYRING_FILE=${OPENAI_REAUTH_KEYRING_FILE:-}
+      # One Chromium process per active job; hard-capped at 2 by the worker.
+      - OPENAI_REAUTH_CONCURRENCY=${OPENAI_REAUTH_CONCURRENCY:-1}
+      - OPENAI_REAUTH_SCAN_INTERVAL_SECONDS=${OPENAI_REAUTH_SCAN_INTERVAL_SECONDS:-300}
+      - OPENAI_REAUTH_POLL_INTERVAL_MILLISECONDS=${OPENAI_REAUTH_POLL_INTERVAL_MILLISECONDS:-1000}
+      - OPENAI_REAUTH_JOB_TIMEOUT_SECONDS=${OPENAI_REAUTH_JOB_TIMEOUT_SECONDS:-180}
+      - OPENAI_REAUTH_LEASE_SECONDS=${OPENAI_REAUTH_LEASE_SECONDS:-240}
+
       # =======================================================================
       # Gemini OAuth Configuration (optional)
       # =======================================================================

@@ -2,6 +2,51 @@ export default {
     accounts: {
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
+      openaiReauth: {
+        menu: '自动重新授权',
+        title: 'Codex 自动重新授权',
+        workerReady: '自动重新授权服务已就绪',
+        workerUnavailable: '服务未启用或加密密钥环、Chromium 不可用',
+        account: '账号',
+        bound: '已绑定登录资料',
+        unbound: '未绑定登录资料',
+        enabled: '允许自动重新授权',
+        disabled: '自动重新授权已停用',
+        password: '账号密码',
+        totpSecret: 'Authenticator TOTP 密钥',
+        replaceCredentials: '保存时会整体替换加密资料；已保存的密码和 TOTP 密钥不会回显。',
+        save: '保存登录资料',
+        saving: '保存中…',
+        saveSuccess: '登录资料已加密保存',
+        saveFailed: '保存登录资料失败',
+        remove: '解除绑定并删除登录资料',
+        removeConfirm: '这会立即删除此账号加密保存的密码和 TOTP 密钥，并取消未完成的重授权任务。',
+        confirmRemove: '确认删除',
+        removeSuccess: '登录资料已删除',
+        removeFailed: '删除登录资料失败',
+        enableFailed: '更新自动重新授权状态失败',
+        queue: '立即排队',
+        queued: '已加入重授权队列',
+        notQueued: '账号当前不符合重授权条件，未加入队列',
+        queueFailed: '加入重授权队列失败',
+        refresh: '刷新状态',
+        loading: '正在读取重授权状态…',
+        loadFailed: '读取重授权状态失败',
+        retry: '重试',
+        jobs: '最近任务',
+        noJobs: '暂无重授权任务',
+        attempt: '尝试 {count}',
+        createdAt: '创建时间',
+        status: {
+          queued: '排队中',
+          running: '执行中',
+          needs_input: '需要人工处理',
+          succeeded: '成功',
+          failed: '失败',
+          phone_verification_required: '需要手机号验证',
+          cancelled: '已取消',
+        },
+      },
       createAccount: '添加账号',
       autoRefresh: '自动刷新',
       enableAutoRefresh: '启用自动刷新',
@@ -445,7 +490,29 @@ export default {
         creditsExhaustedUntil: 'AI Credits 已用尽，预计 {time} 恢复',
         overloadedUntil: '负载过重，重置时间：{time}',
         viewTempUnschedDetails: '查看临时不可调度详情',
-        tempUnschedulableUntil: '预计 {time} 恢复'
+        tempUnschedulableUntil: '预计 {time} 恢复',
+        oauthDiagnostic: {
+          credentials_rejected: {
+            label: '凭据被拒绝',
+            hint: '上游或 token 刷新服务报告凭据无效；此状态仅供诊断，不会自动重新登录。'
+          },
+          refresh_token_missing: {
+            label: '缺少 refresh token',
+            hint: '账号没有可用的 refresh token，无法通过现有刷新流程恢复。'
+          },
+          upstream_401_cooldown: {
+            label: '上游 401 冷却',
+            hint: '账号因上游 OAuth 401 暂时退出调度；等待现有 token refresh 流程处理。'
+          },
+          refresh_retry_exhausted: {
+            label: '刷新重试耗尽',
+            hint: 'token refresh 本轮重试已耗尽；查看错误详情并检查上游连通性。'
+          },
+          other_error: {
+            label: 'OAuth 错误待确认',
+            hint: '账号处于错误状态，但现有错误信息无法归入已知 OAuth 类别。'
+          }
+        }
       },
       tempUnschedulable: {
         title: '临时不可调度',

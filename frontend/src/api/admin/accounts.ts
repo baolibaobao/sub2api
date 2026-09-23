@@ -34,6 +34,76 @@ import type {
   OpenCodeGoUsageState
 } from '@/types'
 
+export type OpenAIReauthJobStatus =
+  | 'queued'
+  | 'running'
+  | 'needs_input'
+  | 'succeeded'
+  | 'failed'
+  | 'phone_verification_required'
+  | 'cancelled'
+
+export interface OpenAIReauthStatus {
+  worker_enabled: boolean
+  profile_configured: boolean
+  profile?: {
+    account_id: number
+    enabled: boolean
+    profile_version: number
+    updated_at: string
+  } | null
+  jobs: Array<{
+    id: number
+    account_id: number
+    status: OpenAIReauthJobStatus
+    error_code?: string
+    message?: string
+    attempt: number
+    created_at: string
+    started_at?: string | null
+    finished_at?: string | null
+  }>
+}
+
+export async function getOpenAIReauthStatus(id: number): Promise<OpenAIReauthStatus> {
+  const { data } = await apiClient.get<OpenAIReauthStatus>(`/admin/openai/accounts/${id}/reauth`)
+  return data
+}
+
+export async function saveOpenAIReauthProfile(
+  id: number,
+  payload: { password: string; totp_secret: string; enabled: boolean }
+): Promise<{ enabled: boolean; profile_version: number }> {
+  const { data } = await apiClient.put<{ enabled: boolean; profile_version: number }>(
+    `/admin/openai/accounts/${id}/reauth-profile`,
+    payload
+  )
+  return data
+}
+
+export async function setOpenAIReauthProfileEnabled(
+  id: number,
+  enabled: boolean
+): Promise<{ enabled: boolean }> {
+  const { data } = await apiClient.patch<{ enabled: boolean }>(
+    `/admin/openai/accounts/${id}/reauth-profile`,
+    { enabled }
+  )
+  return data
+}
+
+export async function deleteOpenAIReauthProfile(id: number): Promise<{ deleted: boolean }> {
+  const { data } = await apiClient.delete<{ deleted: boolean }>(
+    `/admin/openai/accounts/${id}/reauth-profile`
+  )
+  return data
+}
+
+export async function enqueueOpenAIReauth(id: number): Promise<{ queued: boolean }> {
+  const { data } = await apiClient.post<{ queued: boolean }>(`/admin/openai/accounts/${id}/reauth`)
+  return data
+}
+
 /**
  * List all accounts with pagination
  * @param page - Page number (default: 1)
@@ -1135,6 +1205,11 @@ export const accountsAPI = {
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,
+  getOpenAIReauthStatus,
+  saveOpenAIReauthProfile,
+  setOpenAIReauthProfileEnabled,
+  deleteOpenAIReauthProfile,
+  enqueueOpenAIReauth,
   getById,
   create,
   duplicate,

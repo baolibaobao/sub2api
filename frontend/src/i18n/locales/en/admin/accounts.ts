@@ -2,6 +2,51 @@ export default {
     accounts: {
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
+      openaiReauth: {
+        menu: 'Automatic reauthorization',
+        title: 'Codex automatic reauthorization',
+        workerReady: 'Automatic reauthorization is ready',
+        workerUnavailable: 'The worker is disabled or its keyring or Chromium is unavailable',
+        account: 'Account',
+        bound: 'Login profile bound',
+        unbound: 'No login profile bound',
+        enabled: 'Allow automatic reauthorization',
+        disabled: 'Automatic reauthorization is disabled',
+        password: 'Account password',
+        totpSecret: 'Authenticator TOTP secret',
+        replaceCredentials: 'Saving replaces the encrypted profile. Saved passwords and TOTP secrets are never shown.',
+        save: 'Save login profile',
+        saving: 'Saving…',
+        saveSuccess: 'Login profile encrypted and saved',
+        saveFailed: 'Failed to save login profile',
+        remove: 'Unbind and delete login profile',
+        removeConfirm: 'This immediately deletes the encrypted password and TOTP secret for this account and cancels unfinished reauthorization jobs.',
+        confirmRemove: 'Confirm delete',
+        removeSuccess: 'Login profile deleted',
+        removeFailed: 'Failed to delete login profile',
+        enableFailed: 'Failed to update automatic reauthorization state',
+        queue: 'Queue now',
+        queued: 'Reauthorization job queued',
+        notQueued: 'Account is not currently eligible; no job was queued',
+        queueFailed: 'Failed to queue reauthorization job',
+        refresh: 'Refresh status',
+        loading: 'Loading reauthorization status…',
+        loadFailed: 'Failed to load reauthorization status',
+        retry: 'Retry',
+        jobs: 'Recent jobs',
+        noJobs: 'No reauthorization jobs',
+        attempt: 'Attempt {count}',
+        createdAt: 'Created',
+        status: {
+          queued: 'Queued',
+          running: 'Running',
+          needs_input: 'Needs attention',
+          succeeded: 'Succeeded',
+          failed: 'Failed',
+          phone_verification_required: 'Phone verification required',
+          cancelled: 'Cancelled',
+        },
+      },
       createAccount: 'Create Account',
       autoRefresh: 'Auto Refresh',
       enableAutoRefresh: 'Enable auto refresh',
@@ -242,7 +287,29 @@ export default {
         creditsExhaustedUntil: 'AI Credits exhausted, expected recovery at {time}',
         overloadedUntil: 'Overloaded until {time}',
         viewTempUnschedDetails: 'View temp unschedulable details',
-        tempUnschedulableUntil: 'Resumes {time}'
+        tempUnschedulableUntil: 'Resumes {time}',
+        oauthDiagnostic: {
+          credentials_rejected: {
+            label: 'Credentials rejected',
+            hint: 'The upstream or token refresh service reported invalid credentials. This is diagnostic only and does not trigger login.'
+          },
+          refresh_token_missing: {
+            label: 'Refresh token missing',
+            hint: 'The account has no refresh token for the existing refresh flow.'
+          },
+          upstream_401_cooldown: {
+            label: 'Upstream 401 cooldown',
+            hint: 'The account is temporarily unscheduled after an upstream OAuth 401 while the existing token refresh flow handles it.'
+          },
+          refresh_retry_exhausted: {
+            label: 'Refresh retries exhausted',
+            hint: 'The current token refresh attempt exhausted its retries. Check the error details and upstream connectivity.'
+          },
+          other_error: {
+            label: 'OAuth error unclassified',
+            hint: 'The account is in an error state, but its current error does not match a known OAuth category.'
+          }
+        }
       },
       columns: {
         name: 'Name',

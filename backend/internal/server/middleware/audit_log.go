@@ -109,15 +109,16 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
-	"GET /api/v1/admin/accounts/data":             "admin.accounts.export",
-	"GET /api/v1/admin/proxies/data":              "admin.proxies.export",
-	"GET /api/v1/admin/redeem-codes/export":       "admin.redeem_codes.export",
-	"GET /api/v1/admin/backups/:id/download-url":  "admin.backups.download",
-	"GET /api/v1/admin/settings/admin-api-key":    "admin.admin_api_key.read",
-	"GET /api/v1/admin/users/:id/api-keys":        "admin.users.api_keys.read",
-	"GET /api/v1/admin/groups/:id/api-keys":       "admin.groups.api_keys.read",
-	"GET /api/v1/admin/backups/s3-config":         "admin.backups.s3_config.read",
-	"GET /api/v1/admin/data-management/s3/config": "admin.data_management.s3_config.read",
+	"GET /api/v1/admin/accounts/data":              "admin.accounts.export",
+	"GET /api/v1/admin/proxies/data":               "admin.proxies.export",
+	"GET /api/v1/admin/redeem-codes/export":        "admin.redeem_codes.export",
+	"GET /api/v1/admin/backups/:id/download-url":   "admin.backups.download",
+	"GET /api/v1/admin/settings/admin-api-key":     "admin.admin_api_key.read",
+	"GET /api/v1/admin/users/:id/api-keys":         "admin.users.api_keys.read",
+	"GET /api/v1/admin/groups/:id/api-keys":        "admin.groups.api_keys.read",
+	"GET /api/v1/admin/backups/s3-config":          "admin.backups.s3_config.read",
+	"GET /api/v1/admin/data-management/s3/config":  "admin.data_management.s3_config.read",
+	"GET /api/v1/admin/openai/accounts/:id/reauth": "admin.openai.reauth.status",
 }
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
@@ -136,6 +137,10 @@ var auditActionOverrides = map[string]string{
 	"PUT /api/v1/admin/backups/s3-config":                     "admin.backups.s3_config.update",
 	"POST /api/v1/admin/settings/admin-api-key/regenerate":    "admin.admin_api_key.regenerate",
 	"DELETE /api/v1/admin/settings/admin-api-key":             "admin.admin_api_key.delete",
+	"PUT /api/v1/admin/openai/accounts/:id/reauth-profile":    "admin.openai.reauth_profile.update",
+	"PATCH /api/v1/admin/openai/accounts/:id/reauth-profile":  "admin.openai.reauth_profile.toggle",
+	"DELETE /api/v1/admin/openai/accounts/:id/reauth-profile": "admin.openai.reauth_profile.delete",
+	"POST /api/v1/admin/openai/accounts/:id/reauth":           "admin.openai.reauth.enqueue",
 	"PUT /api/v1/admin/prompt-audit/config":                   "admin.prompt_audit.config.update",
 	"POST /api/v1/admin/prompt-audit/endpoints/probe":         "admin.prompt_audit.endpoint.probe",
 	"DELETE /api/v1/admin/prompt-audit/events/:id":            "admin.prompt_audit.event.delete",
@@ -151,6 +156,7 @@ var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/user/passkeys/register/finish":                {},
 	"POST /api/v1/admin/accounts/import/codex-session":          {},
 	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session": {},
+	"PUT /api/v1/admin/openai/accounts/:id/reauth-profile":      {},
 	"PUT /api/v1/admin/prompt-audit/config":                     {},
 	"POST /api/v1/admin/prompt-audit/endpoints/probe":           {},
 	"DELETE /api/v1/admin/prompt-audit/events/:id":              {},

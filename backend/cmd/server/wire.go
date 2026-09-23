@@ -96,6 +96,7 @@ func provideCleanup(
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
+	openaiReauthWorker *service.OpenAIReauthWorker,
 	accountExpiry *service.AccountExpiryService,
 	cnProviderBalanceCheck *service.CNProviderBalanceCheckService,
 	codexVersionSync *service.OpenAICodexVersionSyncService,
@@ -258,6 +259,12 @@ func provideCleanup(
 			}},
 			{"TokenRefreshService", func() error {
 				tokenRefresh.Stop()
+				return nil
+			}},
+			{"OpenAIReauthWorker", func() error {
+				if openaiReauthWorker != nil {
+					openaiReauthWorker.Stop()
+				}
 				return nil
 			}},
 			{"AccountExpiryService", func() error {

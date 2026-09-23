@@ -266,3 +266,52 @@ func TestOpenAITokenRefresher_CanRefresh(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAITokenRefresher_NeedsRefreshForPersistedOAuth401(t *testing.T) {
+	refresher := &OpenAITokenRefresher{}
+	futureExpiry := time.Now().Add(24 * time.Hour).Unix()
+	base := Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"refresh_token": "refresh-token",
+			"expires_at":    strconv.FormatInt(futureExpiry, 10),
+		},
+	}
+
+	tests := []struct {
+		name                string
+		platform            string
+		accountType         string
+		reason              string
+		status              string
+		missingRefreshToken bool
+		want                bool
+	}{
+		{name: "401 forces standard refresh despite future expiry", reason: "OAuth 401: unauthorized", status: StatusActive, want: true},
+		{name: "other temporary state still uses expiry", reason: "429 from upstream", status: StatusActive, want: false},
+		{name: "missing refresh token cannot refresh", reason: "OAuth 401: unauthorized", status: StatusActive, missingRefreshToken: true, want: false},
+		{name: "permanently errored account is not force-refreshed", reason: "OAuth 401: unauthorized", status: StatusError, want: false},
+		{name: "other platform is not force-refreshed", platform: PlatformGemini, reason: "OAuth 401: unauthorized", status: StatusActive, want: false},
+		{name: "API key account is not force-refreshed", accountType: AccountTypeAPIKey, reason: "OAuth 401: unauthorized", status: StatusActive, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account := base
+			if tt.platform != "" {
+				account.Platform = tt.platform
+			}
+			if tt.accountType != "" {
+				account.Type = tt.accountType
+			}
+			account.Status = tt.status
+			account.TempUnschedulableReason = tt.reason
+			if tt.missingRefreshToken {
+				account.Credentials = map[string]any{"expires_at": strconv.FormatInt(futureExpiry, 10)}
+			}
+			require.Equal(t, tt.want, refresher.NeedsRefresh(&account, time.Hour))
+		})
+	}
+}

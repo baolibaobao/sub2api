@@ -676,6 +676,19 @@ token_refresh:
   # 单个后台刷新周期的总超时时间（秒，最大 3600）
   cycle_timeout_seconds: 240
 
+# OpenAI/Codex automatic OAuth reauthorization (disabled by default)
+# OpenAI/Codex OAuth 自动重新授权（默认关闭）
+openai_reauth:
+  enabled: false
+  # External AES-256 keyring file; do not keep this inside the database or Git checkout.
+  keyring_file: ""
+  # Each active job starts Chromium; keep at 1 on small hosts (hard cap: 2).
+  concurrency: 1
+  scan_interval_seconds: 300
+  poll_interval_milliseconds: 1000
+  job_timeout_seconds: 180
+  lease_seconds: 240
+
 # =============================================================================
 # API Key Auth Cache Configuration
 # API Key 认证缓存配置
