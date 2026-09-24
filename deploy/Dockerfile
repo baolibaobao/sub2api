@@ -11,6 +11,7 @@ ARG GOLANG_IMAGE=golang:1.27.0-alpine
 ARG ALPINE_IMAGE=alpine:3.20
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
+ARG INCLUDE_TOSUB2_RUNTIME=false
 
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
@@ -83,6 +84,8 @@ RUN VERSION_VALUE="${VERSION}" && \
 # -----------------------------------------------------------------------------
 FROM ${ALPINE_IMAGE}
 
+ARG INCLUDE_TOSUB2_RUNTIME=false
+
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
 LABEL description="Sub2API - AI API Gateway Platform"
@@ -94,8 +97,11 @@ RUN apk add --no-cache \
     tzdata \
     curl \
     chromium \
-    su-exec \
-    && rm -rf /var/cache/apk/*
+    su-exec && \
+    if [ "${INCLUDE_TOSUB2_RUNTIME}" = "true" ]; then \
+        apk add --no-cache python3 py3-pip nodejs npm; \
+    fi && \
+    rm -rf /var/cache/apk/*
 
 # Create non-root user
 RUN addgroup -g 1000 sub2api && \
@@ -107,6 +113,16 @@ WORKDIR /app
 # Copy binary and runtime fallback resources from builder
 COPY --from=backend-builder /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
+
+# The optional toSub2-compatible transport is opt-in at image build time so
+# the normal image keeps its existing size and runtime surface.
+RUN if [ "${INCLUDE_TOSUB2_RUNTIME}" = "true" ]; then \
+        python3 -m pip install --no-cache-dir --break-system-packages \
+            -r /app/resources/tosub2-transport/requirements.txt && \
+        npm install --prefix /app/resources/tosub2-transport \
+            --omit=dev --no-package-lock --ignore-scripts && \
+        npm cache clean --force; \
+    fi
 
 # Create data directory
 RUN mkdir -p /app/data && chown -R sub2api:sub2api /app

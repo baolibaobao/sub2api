@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	openAIReauthCallbackURI = "http://localhost:1455/auth/callback"
-	openAIReauthBrowserWait = 2 * time.Minute
+	openAIReauthCallbackURI     = "http://localhost:1455/auth/callback"
+	openAIReauthBrowserWait     = 2 * time.Minute
+	openAIReauthCloudflareGrace = 30 * time.Second
 )
 
 type chromiumOpenAIReauthBrowser struct {
@@ -159,6 +160,7 @@ func (b *chromiumOpenAIReauthBrowser) Login(
 
 type reauthPageSnapshot struct {
 	URL     string             `json:"url"`
+	Title   string             `json:"title"`
 	Text    string             `json:"text"`
 	Inputs  []reauthPageInput  `json:"inputs"`
 	Buttons []reauthPageButton `json:"buttons"`
@@ -190,6 +192,7 @@ func driveOpenAIReauthPage(
 	interval := time.NewTicker(350 * time.Millisecond)
 	defer interval.Stop()
 	var emailSubmitted, passwordSubmitted, totpSubmitted, continueClicked bool
+	var cloudflareStartedAt time.Time
 	for {
 		select {
 		case result := <-callback:
@@ -210,8 +213,21 @@ func driveOpenAIReauthPage(
 		}
 		classification := classifyOpenAIReauthPage(snapshot)
 		if classification != nil {
+			// A real Chromium session can complete the normal Cloudflare
+			// interstitial itself. Give it a bounded grace period before
+			// surfacing needs_input; the token transport has a separate
+			// curl_cffi solver for API responses.
+			if classification.ErrorCode == "security_challenge_required" && isCloudflareReauthPage(snapshot) {
+				if cloudflareStartedAt.IsZero() {
+					cloudflareStartedAt = time.Now()
+				}
+				if time.Since(cloudflareStartedAt) < openAIReauthCloudflareGrace {
+					continue
+				}
+			}
 			return classification, nil
 		}
+		cloudflareStartedAt = time.Time{}
 		if snapshot.URL == "about:blank" {
 			continue
 		}
@@ -265,6 +281,7 @@ func readReauthPage(ctx context.Context, client *cdpClient, sessionID string) (*
   const text = (document.body && document.body.innerText || '').slice(0, 6000);
   return {
     url: location.href,
+    title: document.title || '',
     text,
     inputs: Array.from(document.querySelectorAll('input')).filter(visible).map(e => ({
       type: (e.type || '').toLowerCase(), name: e.name || '', id: e.id || '',
@@ -297,6 +314,7 @@ func classifyOpenAIReauthPage(snapshot *reauthPageSnapshot) *service.OpenAIReaut
 		return nil
 	}
 	href := strings.ToLower(snapshot.URL)
+	title := strings.ToLower(strings.TrimSpace(snapshot.Title))
 	text := strings.ToLower(snapshot.Text)
 	for _, input := range snapshot.Inputs {
 		if input.Type == "tel" {
@@ -320,6 +338,15 @@ func classifyOpenAIReauthPage(snapshot *reauthPageSnapshot) *service.OpenAIReaut
 			ErrorCode: "email_verification_required", Message: "需要人工完成邮箱验证码验证",
 		}
 	}
+	if containsAny(href, "__cf_chl", "/cdn-cgi/challenge-platform") ||
+		containsAny(title, "just a moment", "attention required", "请稍候") ||
+		containsAny(text, "enable javascript and cookies to continue", "checking your browser", "performance & security by cloudflare", "ray id:", "请稍候") {
+		return &service.OpenAIReauthBrowserResult{
+			Status:    service.OpenAIReauthStatusNeedsInput,
+			ErrorCode: "security_challenge_required",
+			Message:   "官方登录页要求完成 Cloudflare/安全检查，任务已停止，需人工处理后重试",
+		}
+	}
 	if containsAny(text, "captcha", "verify you are human", "unusual activity", "complete the security check", "验证你是人类", "安全检查") {
 		return &service.OpenAIReauthBrowserResult{
 			Status:    service.OpenAIReauthStatusNeedsInput,
@@ -327,6 +354,18 @@ func classifyOpenAIReauthPage(snapshot *reauthPageSnapshot) *service.OpenAIReaut
 		}
 	}
 	return nil
+}
+
+func isCloudflareReauthPage(snapshot *reauthPageSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	href := strings.ToLower(snapshot.URL)
+	title := strings.ToLower(strings.TrimSpace(snapshot.Title))
+	text := strings.ToLower(snapshot.Text)
+	return containsAny(href, "__cf_chl", "/cdn-cgi/challenge-platform") ||
+		containsAny(title, "just a moment", "attention required", "请稍候") ||
+		containsAny(text, "enable javascript and cookies to continue", "checking your browser", "performance & security by cloudflare", "ray id:", "请稍候")
 }
 
 func reauthInputSelector(snapshot *reauthPageSnapshot, kind string) string {

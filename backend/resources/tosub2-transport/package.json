@@ -1,0 +1,7 @@
+{
+  "name": "sub2api-tosub2-transport-runtime",
+  "private": true,
+  "dependencies": {
+    "jsdom": "26.1.0"
+  }
+}

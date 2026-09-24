@@ -62,6 +62,17 @@ func TestClassifyOpenAIReauthPageStopsForHumanVerification(t *testing.T) {
 		require.Equal(t, "security_challenge_required", result.ErrorCode)
 	})
 
+	t.Run("Cloudflare interstitial", func(t *testing.T) {
+		result := classifyOpenAIReauthPage(&reauthPageSnapshot{
+			URL:   "https://auth.openai.com/?__cf_chl_rt_tk=redacted",
+			Title: "请稍候…",
+			Text:  "请稍候，正在检查你的浏览器。",
+		})
+		require.NotNil(t, result)
+		require.Equal(t, service.OpenAIReauthStatusNeedsInput, result.Status)
+		require.Equal(t, "security_challenge_required", result.ErrorCode)
+	})
+
 	require.Nil(t, classifyOpenAIReauthPage(&reauthPageSnapshot{URL: "https://auth.openai.com/log-in", Text: "Sign in"}))
 }
 

@@ -115,6 +115,7 @@ func TestCreateOpenAIReqClient_Timeout120Seconds(t *testing.T) {
 	client, err := createOpenAIReqClient("http://proxy.local:8080")
 	require.NoError(t, err)
 	require.Equal(t, 120*time.Second, client.GetClient().Timeout)
+	require.Contains(t, client.Headers.Get("User-Agent"), "Firefox/")
 }
 
 func TestCreateGeminiReqClient_ForceHTTP2Disabled(t *testing.T) {
