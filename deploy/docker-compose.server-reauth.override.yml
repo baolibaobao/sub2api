@@ -1,0 +1,20 @@
+services:
+  sub2api:
+    volumes:
+      - ./data:/app/data:Z
+      - ./bin/sub2api:/app/sub2api:ro
+      - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
+    secrets:
+      - source: openai_reauth_keyring
+        target: reauth-keyring.json
+    tmpfs:
+      - /run/sub2api-secrets:mode=0700,uid=1000,gid=1000,size=1m
+    environment:
+      - OPENAI_REAUTH_ENABLED=false
+      - OPENAI_REAUTH_KEYRING_FILE=/run/sub2api-secrets/keyring.json
+      - OPENAI_OAUTH_TOSUB2_TRANSPORT_ENABLED=false
+      - OPENAI_OAUTH_TOSUB2_CLOUDFLARE_SOLVER_ENABLED=false
+
+secrets:
+  openai_reauth_keyring:
+    file: /etc/sub2api/reauth/keyring.json

@@ -12,6 +12,7 @@ fi
 from pathlib import Path
 
 overlay = Path("deploy/docker-compose.reauth.yml").read_text()
+server_overlay = Path("deploy/docker-compose.server-reauth.override.yml").read_text()
 entrypoint = Path("deploy/docker-entrypoint.sh").read_text()
 
 required_overlay = (
@@ -35,5 +36,16 @@ for fragment in required_entrypoint:
 
 assert "OPENAI_REAUTH_ENABLED=true" not in overlay, \
     "the opt-in overlay must not silently enable automatic reauthorization"
+
+required_server_overlay = (
+    "./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro",
+    "OPENAI_REAUTH_ENABLED=false",
+    "OPENAI_REAUTH_KEYRING_FILE=/run/sub2api-secrets/keyring.json",
+    "OPENAI_OAUTH_TOSUB2_TRANSPORT_ENABLED=false",
+    "OPENAI_OAUTH_TOSUB2_CLOUDFLARE_SOLVER_ENABLED=false",
+    "file: /etc/sub2api/reauth/keyring.json",
+)
+for fragment in required_server_overlay:
+    assert fragment in server_overlay, f"server overlay is missing: {fragment}"
 print("docker compose reauth secret static test passed")
 PY
