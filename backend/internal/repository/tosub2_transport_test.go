@@ -34,6 +34,22 @@ func TestToSub2CloudflareChallengeDetection(t *testing.T) {
 	}
 	require.True(t, toSub2CloudflareChallenge(headerChallenge))
 
+	challengeWithSuccessfulStatus := &toSub2TransportResponse{
+		Status:  http.StatusOK,
+		Headers: http.Header{"Content-Type": []string{"text/html"}},
+		Body:    []byte(`<html><script>window._cf_chl_opt = {};</script></html>`),
+	}
+	require.True(t, toSub2CloudflareChallenge(challengeWithSuccessfulStatus))
+	require.True(t, toSub2CloudflareSecurityPage(challengeWithSuccessfulStatus))
+
+	ordinaryHTML := &toSub2TransportResponse{
+		Status:  http.StatusOK,
+		Headers: http.Header{"Content-Type": []string{"text/html"}},
+		Body:    []byte(`<!DOCTYPE html><html><body>Unexpected token</body></html>`),
+	}
+	require.False(t, toSub2CloudflareChallenge(ordinaryHTML))
+	require.False(t, toSub2CloudflareSecurityPage(ordinaryHTML))
+
 	ordinaryJSON := &toSub2TransportResponse{
 		Status:  http.StatusBadRequest,
 		Headers: http.Header{"Content-Type": []string{"application/json"}},

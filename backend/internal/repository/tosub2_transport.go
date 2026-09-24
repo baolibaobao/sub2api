@@ -32,6 +32,9 @@ const (
 )
 
 var cloudflareChallengeMarker = regexp.MustCompile(`(?is)_cf_chl_opt|cdn-cgi/challenge-platform|cf-mitigated\s*[:=]\s*["']challenge`)
+var cloudflareSolverMarker = regexp.MustCompile(`(?is)_cf_chl_opt`)
+var cloudflarePageMarker = regexp.MustCompile(`(?is)_cf_chl_opt|cdn-cgi/challenge-platform|challenge-platform|cf-challenge|just a moment|attention required|checking your browser|enable javascript and cookies to continue|performance\s*&\s*security by cloudflare|ray id:`)
+var toSub2TLSProfileMarker = regexp.MustCompile(`(?i)^chrome\d+[a-z]?$`)
 
 // toSub2Transport is the small Go side of the toSub2 transport protocol.
 // The long-lived child owns curl_cffi, the CookieJar and the JS challenge
@@ -71,6 +74,11 @@ type toSub2SolveResult struct {
 	OK        bool `json:"ok"`
 	Status    int  `json:"status"`
 	Clearance bool `json:"clearance"`
+}
+
+type toSub2SentinelResult struct {
+	Token   string `json:"token"`
+	SoToken string `json:"soToken,omitempty"`
 }
 
 func toSub2TransportEnabled() bool {
@@ -145,16 +153,36 @@ func newToSub2Transport(ctx context.Context, proxyURL string) (*toSub2Transport,
 		profile:  profile,
 		proxyURL: strings.TrimSpace(proxyURL),
 	}
-	if _, err := transport.send(ctx, map[string]any{
+	configured, err := transport.send(ctx, map[string]any{
 		"operation":   "configure",
 		"proxy":       nullableString(proxyURL),
 		"impersonate": profile,
 		"verifyTls":   toSub2VerifyTLS(proxyURL),
-	}); err != nil {
+	})
+	if err != nil {
 		_ = transport.Close()
 		return nil, fmt.Errorf("configure toSub2 TLS helper: %w", err)
 	}
+	var configuredProfile struct {
+		Profile         string `json:"profile"`
+		IdentityProfile string `json:"identityProfile"`
+	}
+	if err := json.Unmarshal(configured, &configuredProfile); err == nil {
+		for _, candidate := range []string{configuredProfile.IdentityProfile, configuredProfile.Profile} {
+			if toSub2TLSProfileMarker.MatchString(strings.TrimSpace(candidate)) {
+				transport.profile = strings.TrimSpace(candidate)
+				break
+			}
+		}
+	}
 	return transport, nil
+}
+
+func (t *toSub2Transport) TLSProfile() string {
+	if t == nil || !toSub2TLSProfileMarker.MatchString(strings.TrimSpace(t.profile)) {
+		return defaultToSub2TLSProfile
+	}
+	return strings.TrimSpace(t.profile)
 }
 
 func nullableString(value string) any {
@@ -189,17 +217,40 @@ func (t *toSub2Transport) request(ctx context.Context, req *http.Request) (*toSu
 		return nil, errors.New("OAuth request body exceeds toSub2 transport limit")
 	}
 
-	headers := make([][]string, 0, len(req.Header))
-	for name, values := range req.Header {
+	response, err := t.requestPayload(ctx, req.Method, req.URL.String(), req.Header, body)
+	if err != nil {
+		return nil, err
+	}
+	if !toSub2CloudflareSolverSupported(response) || !toSub2CloudflareSolverEnabled() {
+		return response, nil
+	}
+
+	// Keep the same curl_cffi Session, proxy and TLS profile for the challenge
+	// and the original request replay. This is required for cf_clearance to be
+	// accepted by the endpoint that issued the challenge.
+	if err := t.solveCloudflare(ctx, req.URL.String(), response, req.Header); err != nil {
+		return nil, fmt.Errorf("Cloudflare challenge solve failed: %w", err)
+	}
+	return t.requestPayload(ctx, req.Method, req.URL.String(), req.Header, body)
+}
+
+func (t *toSub2Transport) requestPayload(
+	ctx context.Context,
+	method, endpoint string,
+	headers http.Header,
+	body []byte,
+) (*toSub2TransportResponse, error) {
+	headerPairs := make([][]string, 0, len(headers))
+	for name, values := range headers {
 		for _, value := range values {
-			headers = append(headers, []string{name, value})
+			headerPairs = append(headerPairs, []string{name, value})
 		}
 	}
 	result, err := t.send(ctx, map[string]any{
 		"operation": "request",
-		"method":    req.Method,
-		"url":       req.URL.String(),
-		"headers":   headers,
+		"method":    method,
+		"url":       endpoint,
+		"headers":   headerPairs,
 		"body":      base64.StdEncoding.EncodeToString(body),
 		"timeoutMs": toSub2TimeoutMilliseconds(ctx),
 	})
@@ -247,24 +298,60 @@ func (t *toSub2Transport) postForm(ctx context.Context, endpoint, proxyURL strin
 	if err != nil {
 		return nil, err
 	}
-	response, err := t.request(ctx, request)
+	return t.request(ctx, request)
+}
+
+func (t *toSub2Transport) postJSON(ctx context.Context, endpoint, proxyURL string, headers http.Header, payload any) (*toSub2TransportResponse, error) {
+	if t == nil {
+		return nil, errors.New("toSub2 transport is not configured")
+	}
+	if strings.TrimSpace(proxyURL) != "" && t.proxyURL != strings.TrimSpace(proxyURL) {
+		return nil, errors.New("toSub2 transport proxy changed during session")
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode OAuth JSON request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	if toSub2CloudflareChallenge(response) && toSub2CloudflareSolverEnabled() {
-		if err := t.solveCloudflare(ctx, endpoint, response, headers); err != nil {
-			return nil, fmt.Errorf("Cloudflare challenge solve failed: %w", err)
-		}
-		replay, replayErr := newRequest()
-		if replayErr != nil {
-			return nil, replayErr
-		}
-		response, err = t.request(ctx, replay)
-		if err != nil {
-			return nil, err
-		}
+	request.Header = headers.Clone()
+	request.Header.Set("Content-Type", "application/json")
+	return t.request(ctx, request)
+}
+
+func (t *toSub2Transport) generateSentinelTokens(
+	ctx context.Context,
+	pageURL, deviceID, flow string,
+) (string, string, error) {
+	if t == nil {
+		return "", "", errors.New("toSub2 transport is not configured")
 	}
-	return response, nil
+	identity := toSub2BrowserIdentity(t.profile)
+	userAgent, _ := identity["userAgent"].(string)
+	result, err := t.send(ctx, map[string]any{
+		"operation":              "generate_sentinel_tokens",
+		"flow":                   strings.TrimSpace(flow),
+		"deviceID":               strings.TrimSpace(deviceID),
+		"pageUrl":                strings.TrimSpace(pageURL),
+		"includeSessionObserver": true,
+		"userAgent":              userAgent,
+		"browserIdentity":        identity,
+		"nodeCommand":            toSub2NodeCommand(),
+		"timeoutMs":              120000,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	var tokens toSub2SentinelResult
+	if err := json.Unmarshal(result, &tokens); err != nil {
+		return "", "", fmt.Errorf("decode Sentinel tokens: %w", err)
+	}
+	if strings.TrimSpace(tokens.Token) == "" {
+		return "", "", errors.New("Sentinel token response was empty")
+	}
+	return tokens.Token, tokens.SoToken, nil
 }
 
 func (t *toSub2Transport) solveCloudflare(ctx context.Context, endpoint string, response *toSub2TransportResponse, headers http.Header) error {
@@ -421,10 +508,31 @@ func toSub2CloudflareChallenge(response *toSub2TransportResponse) bool {
 	if value := toSub2HeaderValue(response.Headers, "x-cf-mitigated"); strings.Contains(strings.ToLower(value), "challenge") {
 		return true
 	}
-	if response.Status != http.StatusForbidden && response.Status != http.StatusBadRequest && response.Status != http.StatusConflict {
+	return cloudflareChallengeMarker.Match(response.Body)
+}
+
+func toSub2CloudflareSolverSupported(response *toSub2TransportResponse) bool {
+	if response == nil {
 		return false
 	}
-	return cloudflareChallengeMarker.Match(response.Body)
+	return cloudflareSolverMarker.Match(response.Body)
+}
+
+func toSub2CloudflareSecurityPage(response *toSub2TransportResponse) bool {
+	if response == nil {
+		return false
+	}
+	if value := toSub2HeaderValue(response.Headers, "cf-mitigated"); strings.Contains(strings.ToLower(value), "challenge") {
+		return true
+	}
+	if value := toSub2HeaderValue(response.Headers, "x-cf-mitigated"); strings.Contains(strings.ToLower(value), "challenge") {
+		return true
+	}
+	contentType := strings.ToLower(toSub2HeaderValue(response.Headers, "content-type"))
+	if response.Status == http.StatusForbidden && strings.Contains(contentType, "text/html") {
+		return true
+	}
+	return cloudflarePageMarker.Match(response.Body)
 }
 
 func toSub2HeaderValue(headers http.Header, name string) string {

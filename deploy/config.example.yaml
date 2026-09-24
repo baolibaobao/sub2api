@@ -682,7 +682,7 @@ openai_reauth:
   enabled: false
   # External AES-256 keyring file; do not keep this inside the database or Git checkout.
   keyring_file: ""
-  # Each active job starts Chromium; keep at 1 on small hosts (hard cap: 2).
+  # Each active job uses one short-lived protocol/TLS session; keep at 1 on small hosts (hard cap: 2).
   concurrency: 1
   scan_interval_seconds: 300
   poll_interval_milliseconds: 1000

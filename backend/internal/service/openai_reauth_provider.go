@@ -52,10 +52,10 @@ func (p *OpenAIReauthOAuthProvider) Reauthorize(
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, &OpenAIReauthProviderError{Code: "browser_login_failed", Message: "官方登录页面未能完成授权", Retryable: true}
+		return nil, &OpenAIReauthProviderError{Code: "protocol_login_failed", Message: "官方 OAuth 协议登录未能完成授权", Retryable: true}
 	}
 	if login == nil {
-		return nil, &OpenAIReauthProviderError{Code: "empty_browser_result", Message: "官方登录页面未返回授权结果"}
+		return nil, &OpenAIReauthProviderError{Code: "empty_protocol_result", Message: "官方 OAuth 协议未返回授权结果"}
 	}
 	switch login.Status {
 	case OpenAIReauthStatusPhoneVerificationRequired:
@@ -69,8 +69,8 @@ func (p *OpenAIReauthOAuthProvider) Reauthorize(
 	case OpenAIReauthStatusSucceeded:
 	default:
 		return nil, &OpenAIReauthProviderError{
-			Code:      safeReauthCode(login.ErrorCode, "browser_login_failed"),
-			Message:   safeReauthMessage(login.Message, "官方登录页面未能完成授权"),
+			Code:      safeReauthCode(login.ErrorCode, "protocol_login_failed"),
+			Message:   safeReauthMessage(login.Message, "官方 OAuth 协议登录未能完成授权"),
 			Retryable: true,
 		}
 	}

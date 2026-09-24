@@ -115,10 +115,15 @@ Node.js/jsdom 时才启用；否则继续使用现有 Go `req` 客户端。Chrom
 增加这组运行时依赖。使用该 transport 前必须先将 Compose 的 `image` 指向这个
 自定义镜像，再开启对应环境变量。
 
-注意：这条 transport 只解决 OAuth token exchange/refresh 请求在同一会话内的
-指纹与 challenge 重放。网页登录本身仍由现有 headless Chromium 执行；手机号、
-邮箱验证码和无法自动完成的安全检查仍按 `needs_input`/`phone_verification_required`
-分类，不由 helper 代提交人工验证。
+注意：当前 provider 已改为使用同一 helper Session 执行官方协议登录：ChatGPT
+CSRF/signin、密码 + TOTP、workspace 选择、Codex session/select 和 OAuth 回调。
+网页登录不再启动 headless Chromium，而是通过同一 helper Session 访问官方协议
+接口。每个协议请求都会检查 Cloudflare challenge；若响应包含可执行挑战，先在
+同一 Session 中运行 solver，再用同一代理、TLS 指纹和 Cookie 重放原请求。挑战仍
+存在时分类为 `security_challenge_required`。普通 `auth.openai.com/log-in` HTML
+页面仍按登录流程错误处理，不会误判为 Cloudflare。手机号、邮箱验证码和其他
+需要人工完成的步骤仍按 `needs_input`/`phone_verification_required` 分类，不由
+helper 代提交人工验证。
 
 ## 2.3 阶段 2 数据模型与密钥方案草案（2026-09-23）
 
@@ -217,10 +222,10 @@ profile 采用版本化 JSON 明文结构后整体 AES-GCM 加密；数据库明
 Sub2API scheduler (默认每 5 分钟)
   -> 401 分类器 / 候选选择器
   -> 持久化、幂等的 reauth job 队列
-  -> ReauthProvider 接口
+       -> ReauthProvider 接口
        -> 私有 Codex OAuth reauth worker（密码 + TOTP；移除所有 SMS/接码模块）
-            -> headless Chromium 登录会话
-            -> 可选 toSub2 curl_cffi/TLS/challenge transport
+            -> toSub2 curl_cffi/TLS 协议登录会话
+            -> 复用同一 Session 完成 OAuth 回调和 token exchange
   -> 新 OAuth 凭据验证
   -> 仅更新目标账号的认证字段
 ```
@@ -230,21 +235,23 @@ Sub2API scheduler (默认每 5 分钟)
 - 使用账号数据库中的状态、结构化失败原因和已有上游错误记录，建立明确的 `reauth_required` 判定；不要只用任意日志文本包含 `401` 来触发。
 - 用稳定的 Sub2API `account_id` 绑定登录资料。邮箱只作展示/辅助校验，不作为唯一关联键，避免重复邮箱、大小写差异或账号更名造成串号。
 - 账号被管理员删除、停用、解绑、关闭自动重授权或切换平台后，取消尚未执行的任务。账号删除时同步清除加密登录资料和任务；运行中任务用取消信号尽早停止，并通过账号未删除、资料版本和有效租约检查拒绝迟到结果。账号删除触发按 account_id 分批清理全部 usage_logs，并刷新相关聚合统计。
-- 每次扫描只查询候选记录，加入分页/批次上限；默认重授权并发为 1，最多允许 2 个 Chromium 登录同时运行，避免小内存主机被浏览器进程拖垮。
+- 每次扫描只查询候选记录，加入分页/批次上限；默认重授权并发为 1，最多允许 2 个协议/TLS 登录会话，避免小内存主机被并发 helper 拖垮。
 - 手机号验证只终止当前账号的 job：立即写入 `phone_verification_required`，释放 worker slot，不等待人工、不保留 running lease、不取消队列中的其他账号任务。并发为 1 时，该 worker 随即领取下一个账号任务；并发为 2 时，另一个 worker 也不受影响。
 
 ### 4.2 重新授权 Provider
 
-定义与具体 OAuth 实现解耦的 `ReauthProvider` 接口。当前实现由 Sub2API 进程内 worker 调用 provider；每个任务按需启动一个短生命周期、临时用户目录的 headless Chromium，通过正常官方 OAuth 页面完成密码 + TOTP 登录。只在 `auth.openai.com` 页面填写账号资料，从本地 OAuth callback 提取 code/state，再复用现有 OAuth code exchange。登录资料解密后只在任务内存中使用；任务状态、审计与日志不包含资料或 token 原文。
+定义与具体 OAuth 实现解耦的 `ReauthProvider` 接口。当前实现由 Sub2API 进程内 worker 调用 provider；每个任务按需创建一个短生命周期的 toSub2-compatible `curl_cffi` Session，通过官方 JSON 协议完成 ChatGPT CSRF/signin、密码 + TOTP、workspace 选择和 Codex OAuth。登录资料只提交到官方密码验证接口，从本地 OAuth callback 提取 code/state，再复用现有 OAuth code exchange。登录资料解密后只在任务内存和 helper Session 中使用；任务状态、审计与日志不包含资料或 token 原文。
 
-OAuth code exchange/refresh 可以通过可选的 toSub2-compatible transport 发送：
-`curl_cffi` 负责 Chrome TLS impersonation，Python Session 负责代理和 CookieJar，
-Cloudflare solver 只接受当前响应中明确存在 `_cf_chl_opt`/challenge 标记的页面。
-求解成功后使用同一 Session 重放原始 POST，最多求解一次；普通 JSON 400/409、
+OAuth code exchange/refresh 也可以通过可选的 toSub2-compatible transport 发送：
+`curl_cffi` 负责 Chrome TLS impersonation，Python Session 负责代理和 CookieJar。
+Cloudflare solver 只在响应中明确存在 challenge 标记时运行；每个请求最多求解一次，
+求解成功后使用同一 Session 重放原始请求。普通
+`auth.openai.com/log-in` HTML 页面会报告为协议/登录状态错误，不会误判为 Cloudflare
+检查；挑战仍存在时返回 `security_challenge_required`。普通 JSON 400/409、
 403 非 challenge、网络错误和 solver 失败不会被误判成已解决。helper 的响应帧、
 请求体、challenge HTML 和错误预览均有大小上限。
 
-阶段 1 的 `codex-auto-sms-receiver` 仅作接口与边界参考，不被运行时调用或作为子进程启动；不引入注册或 HeroSMS 接码集成。参考项目遇到重复手机号验证时跳过该账号当前任务，随后由人工或 HeroSMS 完成验证；这不是绕过手机号验证。Sub2API 浏览器检测到手机号验证后立刻结束当前账号 job 并继续其他队列任务；邮箱验证码或其他安全挑战转为 `needs_input`。浏览器代理来自目标账号绑定的 Sub2API 代理；`socks5h` 会规范为 Chromium 的 `socks5`，认证 SOCKS 代理不支持并以可见失败状态结束。
+阶段 1 的 `codex-auto-sms-receiver` 仅作接口与边界参考，不被运行时调用或作为子进程启动；不引入注册或 HeroSMS 接码集成。参考项目遇到重复手机号验证时跳过该账号当前任务，随后由人工或 HeroSMS 完成验证；这不是绕过手机号验证。Sub2API 协议登录检测到手机号验证后立刻结束当前账号 job 并继续其他队列任务；邮箱验证码或其他安全挑战转为 `needs_input`。代理来自目标账号绑定的 Sub2API 代理，并由 curl_cffi Session 保持同一出口和 Cookie 状态。
 
 ### 4.3 登录资料和凭据安全
 
@@ -327,7 +334,7 @@ Cloudflare solver 只接受当前响应中明确存在 `_cf_chl_opt`/challenge �
 | 2. 数据模型与密钥方案 | 固定 worker 最小输入/输出契约，设计 `account_id` 绑定、profile/job 表、外部密钥环和脱敏 DTO。 | migration、AES-GCM profile repository、管理员 profile/status DTO 已实现；默认关闭；登录资料不进明文列或审计日志。主/standalone Compose 均提供 file-secret + tmpfs overlay；需在目标 Compose 版本验证容器权限、重启后解密及 PostgreSQL migration。 | 代码与 Compose 配置已实现；生产环境集成验证待做 |
 | 3. 401 分类与周期调度 | 复用现有默认 5 分钟 refresh 扫描；持久化 OpenAI OAuth 401 即使 expiry 尚远也进入标准 refresh-token 流程。 | 已覆盖目标 OpenAI OAuth、active、refresh token 和 `OAuth 401:` 原因；非 OAuth/API Key、其他平台/错误原因及永久错误均不触发。不可恢复后的 reauth 任务由阶段 4 接管。 | 已完成（2026-09-23） |
 | 4. 持久化任务队列 | PostgreSQL 幂等队列、租约、跨实例领取、有限重试、周期候选扫描和终态清理。 | 每账号最多一个活动任务；`SKIP LOCKED` 领取；worker ID 带随机实例标识防旧租约写回；默认并发 1、硬上限 2；手机号验证只结束当前 job 并继续队列。 | 核心代码与 worker 单测已完成；需用 PostgreSQL 做 migration/并发集成验证 |
-| 5. 重新授权 Provider | 正常密码 + TOTP OAuth；headless Chromium 在官方页面登录并捕获本地 callback，遇到手机号验证停止；OAuth exchange/refresh 可选 toSub2 TLS/challenge transport。 | 成功通过现有 OAuth exchange 取回新 token；state 校验；账号代理；同一 helper Session 内 challenge 求解和原请求重放；验证码/安全挑战可分类；不含 SMS/接码代码。 | CDP Provider 与 transport bridge 已实现；需安装 helper 依赖并做专用账号端到端测试 |
+| 5. 重新授权 Provider | 正常密码 + TOTP OAuth；toSub2 `curl_cffi` 协议会话完成官方 CSRF/signin、密码、TOTP、workspace、session/select 和本地 callback，遇到手机号验证停止；OAuth exchange/refresh 可选同一 TLS transport。 | 成功通过现有 OAuth exchange 取回新 token；state 校验；账号代理；协议会话保持 Cookie/TLS 状态；challenge 仅在真实响应中出现时处理；验证码/安全挑战可分类；不含 SMS/接码代码。 | 协议 Provider 与 transport bridge 已实现；需安装 helper 依赖并做专用账号端到端测试 |
 | 6. 凭据验证与原子写回 | 校验新 token 的 email/account ID，按原 credentials 条件事务写回并同步调度缓存。 | 失败不覆盖旧凭据；旧任务不能覆盖新凭据；成功只变认证字段，不更新用量、分组、代理或并发。 | 核心代码已完成；需 PostgreSQL 集成测试逐字段验收 |
 | 7. 管理界面与权限 | 提供管理员 profile 保存/解绑、状态/历史查询及手动入队 API 与前端交互。 | API 复用管理员路由鉴权；请求体不记审计日志；响应不回显密码/TOTP/token；账号页支持绑定/更新/删除资料、启停、手动排队、查看任务及手机号验证状态。 | 后端 API 与前端管理 UI 已实现；定向测试、类型检查、lint 和生产构建通过 |
 | 8. 验证、灰度与部署 | 完成全量测试、安全审查、容器密钥挂载、helper 运行时依赖和小流量验证。 | 本地编译构建后再上传，生产服务器不编译；服务器版本备份只留一份；完成上传后再清理本地构建缓存；验证 helper 帧/响应上限、Cookie session 重放、solver 超时和默认关闭行为。 | 进行中：transport 单测与 Compose 配置已补齐；尚需本地 Go/前端全量检查、Python/Node helper 依赖检查、PostgreSQL/容器运行时集成与专用 OAuth 端到端验证 |
@@ -342,7 +349,7 @@ Cloudflare solver 只接受当前响应中明确存在 `_cf_chl_opt`/challenge �
 ## 11. 剩余工作与限制
 
 - 全局默认关闭。启用前需在宿主机生成稳定的外置 AES-256 keyring，将 `OPENAI_REAUTH_KEYRING_HOST_FILE` 设为其绝对路径，在 `.env` 中显式设 `OPENAI_REAUTH_ENABLED=true`，并用基础 Compose 文件加 `docker-compose.reauth.yml` overlay 启动；standalone 使用 `docker-compose.standalone.yml` 作基础文件。不要把真实密钥环提交到 Git 或 `.env`。
-- 默认一个 Chromium worker；小内存服务器不要提高并发。配置允许最多 2 个同时登录任务；手机号验证会立即结束当前任务并释放 slot，另一个 worker 和后续队列不受影响。
+- 默认一个协议/TLS helper worker；小内存服务器不要提高并发。配置允许最多 2 个同时登录任务；手机号验证会立即结束当前任务并释放 slot，另一个 worker 和后续队列不受影响。
 - toSub2-compatible transport 默认关闭；启用前需使用 `deploy/Dockerfile` 的
   `INCLUDE_TOSUB2_RUNTIME=true` 构建自定义镜像，或在同一运行容器提供 Python
   `curl_cffi==0.15.0`、Node.js 20+ 和 `jsdom==26.1.0`，并设置

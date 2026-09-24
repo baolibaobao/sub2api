@@ -1,9 +1,11 @@
 # Sub2API toSub2 transport helper
 
 This directory contains the small runtime subset adapted from `poxiao33/toSub2`
-for OpenAI OAuth transport requests:
+for the OpenAI OAuth protocol login and token transport:
 
 - `tls_transport.py` keeps one `curl_cffi` session, proxy and Chrome TLS profile.
+- The Go protocol provider uses that session for the normal ChatGPT password + TOTP
+  flow, workspace selection and Codex OAuth callback.
 - `cloudflare-ctf/` runs the parent challenge and Turnstile child runtime and
   returns the clearance to the same Python session.
 
@@ -36,6 +38,15 @@ docker build --build-arg INCLUDE_TOSUB2_RUNTIME=true -f deploy/Dockerfile .
 Use the resulting custom image in Compose before setting
 `OPENAI_OAUTH_TOSUB2_TRANSPORT_ENABLED=true`; the published `weishaw/sub2api`
 image does not include this optional runtime.
+
+The automatic reauthorization path does not start Chromium or scrape the login
+page. It uses the official JSON endpoints in one browser-like session. Every
+protocol request is checked for a Cloudflare challenge. When a supported
+challenge is returned, the helper runs the solver in the same session and
+replays the exact request with the same proxy, TLS profile and cookies. If the
+challenge remains, the provider reports `security_challenge_required`; an
+ordinary `auth.openai.com/log-in` HTML page is still reported as a
+protocol/login-state error instead of being misclassified as Cloudflare.
 
 ## Attribution
 
