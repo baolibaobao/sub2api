@@ -84,6 +84,11 @@ func (c *openAIReauthCipher) Encrypt(accountID, version int64, profile service.O
 	if c == nil || accountID <= 0 || version <= 0 {
 		return "", nil, errors.New("invalid OpenAI reauth profile encryption input")
 	}
+	service.NormalizeOpenAIReauthProfile(&profile)
+	if profile.SchemaVersion != service.OpenAIReauthProfileSchemaVersion ||
+		profile.LoginFlow != service.OpenAIReauthLoginFlowPasswordTOTP {
+		return "", nil, errors.New("unsupported OpenAI reauth profile schema or login flow")
+	}
 	profile.Email = strings.TrimSpace(profile.Email)
 	profile.TOTPSecret = strings.TrimSpace(profile.TOTPSecret)
 	if strings.TrimSpace(profile.Password) == "" || profile.TOTPSecret == "" {
@@ -138,6 +143,11 @@ func (c *openAIReauthCipher) Decrypt(accountID, version int64, keyID string, cip
 	var profile service.OpenAIReauthProfile
 	if err := json.Unmarshal(plaintext, &profile); err != nil {
 		return service.OpenAIReauthProfile{}, errors.New("OpenAI reauth profile payload is malformed")
+	}
+	service.NormalizeOpenAIReauthProfile(&profile)
+	if profile.SchemaVersion != service.OpenAIReauthProfileSchemaVersion ||
+		profile.LoginFlow != service.OpenAIReauthLoginFlowPasswordTOTP {
+		return service.OpenAIReauthProfile{}, errors.New("unsupported OpenAI reauth profile schema or login flow")
 	}
 	if strings.TrimSpace(profile.Password) == "" || strings.TrimSpace(profile.TOTPSecret) == "" {
 		return service.OpenAIReauthProfile{}, errors.New("OpenAI reauth profile payload is incomplete")

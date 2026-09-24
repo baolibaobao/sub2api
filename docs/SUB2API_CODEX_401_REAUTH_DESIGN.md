@@ -331,9 +331,9 @@ Cloudflare solver 只在响应中明确存在 challenge 标记时运行；每个
 | --- | --- | --- | --- |
 | 0. 现状审计 | 固定 v0.2.8 基线；追踪账号 401 状态从上游响应到数据库/日志的记录路径；梳理现有 OAuth 刷新、凭据写回、token cache 和调度器。 | 形成代码路径与状态分类表；能区分普通 token 过期、OAuth 会话撤销、调用方密钥错误、403/429 和网络故障。 | 已完成；详见 2.1 |
 | 1. SMS 项目接口审计 | 检查 `codex-auto-sms-receiver` 的许可证、登录/OAuth 流程、验证码来源、后台运行能力，以及是否有稳定 API/CLI/任务接口。 | 明确 Sub2API 与它的调用契约。若没有机器接口，先决定新增本机 worker/API；不把文件导出或 UI 自动点击当成集成接口。 | 已完成；决定由 Sub2API 管理并调用私有 worker，详见 2.2 |
-| 2. 数据模型与密钥方案 | 固定 worker 最小输入/输出契约，设计 `account_id` 绑定、profile/job 表、外部密钥环和脱敏 DTO。 | migration、AES-GCM profile repository、管理员 profile/status DTO 已实现；默认关闭；登录资料不进明文列或审计日志。主/standalone Compose 均提供 file-secret + tmpfs overlay；需在目标 Compose 版本验证容器权限、重启后解密及 PostgreSQL migration。 | 代码与 Compose 配置已实现；生产环境集成验证待做 |
+| 2. 数据模型与密钥方案 | 固定 worker 最小输入/输出契约，设计 `account_id` 绑定、profile/job 表、外部密钥环和脱敏 DTO。 | migration、AES-GCM profile repository、版本化 `schema_version/login_flow`、管理员 profile/status DTO 已实现；默认关闭；登录资料不进明文列或审计日志。软删除 migration 会擦除账号凭据并清理该账号 usage logs、profile/job；主/standalone Compose 均提供 file-secret + tmpfs overlay。仍需目标 PostgreSQL/Compose 运行验收。 | 代码与静态检查已补齐；运行时集成验证待做 |
 | 3. 401 分类与周期调度 | 复用现有默认 5 分钟 refresh 扫描；持久化 OpenAI OAuth 401 即使 expiry 尚远也进入标准 refresh-token 流程。 | 已覆盖目标 OpenAI OAuth、active、refresh token 和 `OAuth 401:` 原因；非 OAuth/API Key、其他平台/错误原因及永久错误均不触发。不可恢复后的 reauth 任务由阶段 4 接管。 | 已完成（2026-09-23） |
-| 4. 持久化任务队列 | PostgreSQL 幂等队列、租约、跨实例领取、有限重试、周期候选扫描和终态清理。 | 每账号最多一个活动任务；`SKIP LOCKED` 领取；worker ID 带随机实例标识防旧租约写回；默认并发 1、硬上限 2；手机号验证只结束当前 job 并继续队列。 | 核心代码与 worker 单测已完成；需用 PostgreSQL 做 migration/并发集成验证 |
+| 4. 持久化任务队列 | PostgreSQL 幂等队列、租约、跨实例领取、有限重试、周期候选扫描和终态清理。 | 每账号最多一个活动任务；`SKIP LOCKED` 领取；worker ID 带随机实例标识防旧租约写回；默认并发 1、硬上限 2；手机号验证只结束当前 job 并继续队列；自动扫描对同一 profile/凭据版本幂等，管理员手动排队可在人工处理后重试终态任务。已补 PostgreSQL 集成用例，覆盖幂等入队、双 worker 竞争、租约恢复、手机号验证终态、手动重试和终态清理。 | 核心代码、单测和集成用例已补齐；待 Docker/PostgreSQL 实际运行验收 |
 | 5. 重新授权 Provider | 正常密码 + TOTP OAuth；toSub2 `curl_cffi` 协议会话完成官方 CSRF/signin、密码、TOTP、workspace、session/select 和本地 callback，遇到手机号验证停止；OAuth exchange/refresh 可选同一 TLS transport。 | 成功通过现有 OAuth exchange 取回新 token；state 校验；账号代理；协议会话保持 Cookie/TLS 状态；challenge 仅在真实响应中出现时处理；验证码/安全挑战可分类；不含 SMS/接码代码。 | 协议 Provider 与 transport bridge 已实现；需安装 helper 依赖并做专用账号端到端测试 |
 | 6. 凭据验证与原子写回 | 校验新 token 的 email/account ID，按原 credentials 条件事务写回并同步调度缓存。 | 失败不覆盖旧凭据；旧任务不能覆盖新凭据；成功只变认证字段，不更新用量、分组、代理或并发。 | 核心代码已完成；需 PostgreSQL 集成测试逐字段验收 |
 | 7. 管理界面与权限 | 提供管理员 profile 保存/解绑、状态/历史查询及手动入队 API 与前端交互。 | API 复用管理员路由鉴权；请求体不记审计日志；响应不回显密码/TOTP/token；账号页支持绑定/更新/删除资料、启停、手动排队、查看任务及手机号验证状态。 | 后端 API 与前端管理 UI 已实现；定向测试、类型检查、lint 和生产构建通过 |
@@ -356,5 +356,5 @@ Cloudflare solver 只在响应中明确存在 challenge 标记时运行；每个
   `OPENAI_OAUTH_TOSUB2_*` 环境变量。该 helper 每次 OAuth 请求短生命周期运行，
   最多求解一次 challenge 并重放一次，未配置依赖时不会自动改走服务器直连。
 - 后端管理员 API 与账号页资料管理界面已实现；前端支持安全绑定/更新/删除资料、启停、手动入队及查看最近任务状态。前端定向测试、类型检查、lint 和生产构建已通过。
-- Compose file-secret/tmpfs 配置、入口降权前暂存逻辑及主/standalone Compose 配置校验已完成；尚未在 Docker 容器内验证实际 secret 文件权限、容器重启后的解密行为，也未运行 PostgreSQL migration/并发/凭据字段集成验收或官方 OAuth 专用账号端到端测试。
+- Compose file-secret/tmpfs 配置、入口降权前暂存逻辑及主/standalone Compose 静态配置校验已完成；新增 migration `242_purge_deleted_account_auth_and_usage.sql`，并显式重建软删除 trigger，软删除时擦除 `accounts.credentials`、删除该账号 `usage_logs`、profile 和 job；单账号与批量管理员删除入口都会清理 OAuth token cache。尚未在 Docker 容器内验证实际 secret 文件权限、容器重启后的解密行为，也未运行 PostgreSQL migration/并发集成用例；这些用例已加入 `backend/internal/repository/openai_reauth_repo_integration_test.go`，需在有 Docker 的本地环境执行。
 - 账号删除策略已确认：删除 profile/job，并依项目既定逻辑清理 OAuth 凭据、token cache 和使用记录；生产删除流程还需按 2.3 的清理要求做数据库集成验证。

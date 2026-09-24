@@ -28,6 +28,21 @@ type batchDeleteAdminService struct {
 	accountsByID     map[int64]*service.Account
 }
 
+type batchDeleteTokenCacheInvalidator struct {
+	mu          sync.Mutex
+	invalidated []int64
+}
+
+func (s *batchDeleteTokenCacheInvalidator) InvalidateToken(_ context.Context, account *service.Account) error {
+	if account == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.invalidated = append(s.invalidated, account.ID)
+	return nil
+}
+
 func (s *batchDeleteAdminService) GetAccountsByIDs(_ context.Context, ids []int64) ([]*service.Account, error) {
 	accounts := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {
@@ -67,9 +82,13 @@ func (s *batchDeleteAdminService) DeleteAccount(ctx context.Context, id int64) e
 }
 
 func setupAccountBatchDeleteRouter(adminSvc *batchDeleteAdminService) *gin.Engine {
+	return setupAccountBatchDeleteRouterWithCache(adminSvc, nil)
+}
+
+func setupAccountBatchDeleteRouterWithCache(adminSvc *batchDeleteAdminService, invalidator service.TokenCacheInvalidator) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, invalidator)
 	router.POST("/api/v1/admin/accounts/batch-delete", handler.BatchDelete)
 	return router
 }
@@ -170,4 +189,31 @@ func TestAccountHandlerBatchDeleteRejectsEmptyNormalizedIDs(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccountHandlerBatchDeleteInvalidatesOAuthTokenCachesAfterSuccess(t *testing.T) {
+	adminSvc := &batchDeleteAdminService{
+		stubAdminService: newStubAdminService(),
+		accountsByID: map[int64]*service.Account{
+			1: {ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth},
+			2: {ID: 2, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth},
+			3: {ID: 3, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey},
+		},
+	}
+	invalidator := &batchDeleteTokenCacheInvalidator{}
+	router := setupAccountBatchDeleteRouterWithCache(adminSvc, invalidator)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/accounts/batch-delete",
+		bytes.NewBufferString(`{"account_ids":[1,2,3]}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	invalidator.mu.Lock()
+	defer invalidator.mu.Unlock()
+	require.ElementsMatch(t, []int64{1, 2}, invalidator.invalidated)
 }

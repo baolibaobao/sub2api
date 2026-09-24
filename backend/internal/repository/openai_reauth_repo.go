@@ -250,18 +250,22 @@ func (r *openAIReauthRepository) ListJobs(ctx context.Context, accountID int64, 
 }
 
 func (r *openAIReauthRepository) EnqueueEligible(ctx context.Context, limit int) (int, error) {
-	return r.enqueueEligible(ctx, 0, limit)
+	return r.enqueueEligible(ctx, 0, limit, false)
 }
 
 func (r *openAIReauthRepository) EnqueueAccount(ctx context.Context, accountID int64) (bool, error) {
 	if accountID <= 0 {
 		return false, errors.New("invalid OpenAI reauth account id")
 	}
-	count, err := r.enqueueEligible(ctx, accountID, 1)
+	// Manual enqueue is an explicit retry after an operator has handled a
+	// terminal state such as phone verification. Automatic scans stay
+	// idempotent against terminal history, while this path must be able to
+	// create a fresh active attempt for the same profile and credentials.
+	count, err := r.enqueueEligible(ctx, accountID, 1, true)
 	return count > 0, err
 }
 
-func (r *openAIReauthRepository) enqueueEligible(ctx context.Context, accountID int64, limit int) (int, error) {
+func (r *openAIReauthRepository) enqueueEligible(ctx context.Context, accountID int64, limit int, manual bool) (int, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("OpenAI reauth repository is not configured")
 	}
@@ -273,7 +277,7 @@ func (r *openAIReauthRepository) enqueueEligible(ctx context.Context, accountID 
 			account_id, trigger_reason, status, max_attempts, profile_version, credentials_fingerprint,
 			next_run_at, created_at, updated_at
 		)
-		SELECT a.id, 'oauth_401', 'queued', 3, p.profile_version,
+		SELECT a.id, CASE WHEN $3 THEN 'manual' ELSE 'oauth_401' END, 'queued', 3, p.profile_version,
 			md5(COALESCE(a.credentials, '{}'::jsonb)::text), NOW(), NOW(), NOW()
 		FROM accounts AS a
 		JOIN account_reauth_profiles AS p ON p.account_id = a.id AND p.enabled IS TRUE
@@ -305,17 +309,17 @@ func (r *openAIReauthRepository) enqueueEligible(ctx context.Context, accountID 
 				SELECT 1 FROM account_reauth_jobs AS j
 				WHERE j.account_id = a.id AND j.status IN ('queued', 'running')
 			)
-			AND NOT EXISTS (
+			AND ($3 OR NOT EXISTS (
 				SELECT 1 FROM account_reauth_jobs AS j
 				WHERE j.account_id = a.id AND j.profile_version = p.profile_version
 					AND j.credentials_fingerprint = md5(COALESCE(a.credentials, '{}'::jsonb)::text)
 					AND j.status IN ('needs_input', 'succeeded', 'failed', 'phone_verification_required', 'cancelled')
-			)
+			))
 			AND ($2 = 0 OR a.id = $2)
 		ORDER BY a.id
 		LIMIT $1
 		ON CONFLICT DO NOTHING
-	`, limit, accountID)
+	`, limit, accountID, manual)
 	if err != nil {
 		return 0, err
 	}
@@ -383,13 +387,13 @@ func (r *openAIReauthRepository) ClaimNext(ctx context.Context, workerID string,
 						)
 					)
 				)
-			AND NOT EXISTS (
+			AND (j.trigger_reason = 'manual' OR NOT EXISTS (
 				SELECT 1 FROM account_reauth_jobs AS terminal
 				WHERE terminal.account_id = a.id
 					AND terminal.profile_version = p.profile_version
 					AND terminal.credentials_fingerprint = md5(COALESCE(a.credentials, '{}'::jsonb)::text)
 					AND terminal.status IN ('needs_input', 'succeeded', 'failed', 'phone_verification_required', 'cancelled')
-			)
+			))
 			AND j.credentials_fingerprint = md5(COALESCE(a.credentials, '{}'::jsonb)::text)
 			ORDER BY j.next_run_at, j.created_at, j.id
 			FOR UPDATE OF j SKIP LOCKED
@@ -670,7 +674,13 @@ func validReauthAccount(account *service.Account) bool {
 }
 
 func validOpenAIReauthInput(input *service.OpenAIReauthInput) bool {
-	return input != nil && validReauthAccount(input.Account) &&
+	if input == nil {
+		return false
+	}
+	service.NormalizeOpenAIReauthProfile(&input.Profile)
+	return validReauthAccount(input.Account) &&
+		input.Profile.SchemaVersion == service.OpenAIReauthProfileSchemaVersion &&
+		input.Profile.LoginFlow == service.OpenAIReauthLoginFlowPasswordTOTP &&
 		strings.TrimSpace(input.Profile.Email) != "" &&
 		strings.TrimSpace(input.Profile.Password) != "" &&
 		strings.TrimSpace(input.Profile.TOTPSecret) != ""

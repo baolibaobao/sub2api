@@ -1249,11 +1249,27 @@ func (h *AccountHandler) Delete(c *gin.Context) {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
+	var deletedAccount *service.Account
+	if h.tokenCacheInvalidator != nil {
+		deletedAccount, err = h.adminService.GetAccount(c.Request.Context(), accountID)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	err = h.adminService.DeleteAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if deletedAccount != nil && deletedAccount.IsOAuth() {
+		if invalidateErr := h.tokenCacheInvalidator.InvalidateToken(c.Request.Context(), deletedAccount); invalidateErr != nil {
+			slog.Warn("delete_account.invalidate_token_failed",
+				"account_id", accountID,
+				"err", invalidateErr,
+			)
+		}
 	}
 
 	response.Success(c, gin.H{"message": "Account deleted successfully"})
@@ -1877,6 +1893,20 @@ func (h *AccountHandler) BatchDelete(c *gin.Context) {
 					})
 				}
 				return nil
+			}
+			if h.tokenCacheInvalidator != nil {
+				for _, affectedID := range affectedIDs {
+					account := accountsByID[affectedID]
+					if account == nil || !account.IsOAuth() {
+						continue
+					}
+					if invalidateErr := h.tokenCacheInvalidator.InvalidateToken(gctx, account); invalidateErr != nil {
+						slog.Warn("batch_delete_account.invalidate_token_failed",
+							"account_id", affectedID,
+							"err", invalidateErr,
+						)
+					}
+				}
 			}
 			successIDs = append(successIDs, affectedIDs...)
 			return nil

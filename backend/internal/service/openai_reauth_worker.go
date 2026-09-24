@@ -22,6 +22,14 @@ const (
 	OpenAIReauthStatusCancelled                 = "cancelled"
 )
 
+const (
+	// OpenAIReauthProfileSchemaVersion identifies the encrypted profile payload,
+	// so future login flows can be added without silently reusing credentials
+	// with a different protocol.
+	OpenAIReauthProfileSchemaVersion  = 1
+	OpenAIReauthLoginFlowPasswordTOTP = "password_totp"
+)
+
 var (
 	ErrNoOpenAIReauthJob        = errors.New("no OpenAI OAuth reauth job available")
 	ErrOpenAIReauthJobLeaseLost = errors.New("OpenAI OAuth reauth job lease lost")
@@ -41,10 +49,12 @@ type OpenAIReauthJob struct {
 // OpenAIReauthProfile is decrypted only for the lifetime of one worker attempt.
 // Implementations must never include these fields in logs, job DTOs, or errors.
 type OpenAIReauthProfile struct {
-	Email      string
-	Password   string
-	TOTPSecret string
-	Version    int64
+	SchemaVersion int    `json:"schema_version"`
+	LoginFlow     string `json:"login_flow"`
+	Email         string `json:"-"`
+	Password      string `json:"password"`
+	TOTPSecret    string `json:"totp_secret"`
+	Version       int64  `json:"-"`
 }
 
 type OpenAIReauthInput struct {
@@ -429,10 +439,31 @@ func (e *OpenAIReauthProviderError) Error() string {
 }
 
 func validOpenAIReauthInput(input *OpenAIReauthInput) bool {
-	return input != nil && input.Account != nil &&
+	if input == nil {
+		return false
+	}
+	NormalizeOpenAIReauthProfile(&input.Profile)
+	return input.Account != nil &&
+		input.Profile.SchemaVersion == OpenAIReauthProfileSchemaVersion &&
+		input.Profile.LoginFlow == OpenAIReauthLoginFlowPasswordTOTP &&
 		strings.TrimSpace(input.Profile.Email) != "" &&
 		strings.TrimSpace(input.Profile.Password) != "" &&
 		strings.TrimSpace(input.Profile.TOTPSecret) != ""
+}
+
+// NormalizeOpenAIReauthProfile fills the only supported profile defaults.
+// It is exported for the repository cipher, while keeping the wire payload
+// contract in the service package.
+func NormalizeOpenAIReauthProfile(profile *OpenAIReauthProfile) {
+	if profile == nil {
+		return
+	}
+	if profile.SchemaVersion == 0 {
+		profile.SchemaVersion = OpenAIReauthProfileSchemaVersion
+	}
+	if strings.TrimSpace(profile.LoginFlow) == "" {
+		profile.LoginFlow = OpenAIReauthLoginFlowPasswordTOTP
+	}
 }
 
 func validateReauthTokenInfo(account *Account, tokenInfo *OpenAITokenInfo) error {
