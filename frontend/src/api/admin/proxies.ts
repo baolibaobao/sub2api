@@ -12,7 +12,8 @@ import type {
   UpdateProxyRequest,
   PaginatedResponse,
   AdminDataPayload,
-  AdminDataImportResult
+  AdminDataImportResult,
+  MihomoNodesResponse
 } from '@/types'
 
 function assertProxyArray(value: unknown): asserts value is Proxy[] {
@@ -197,6 +198,16 @@ export async function getProxyAccounts(id: number): Promise<ProxyAccountSummary[
   return data
 }
 
+export async function getMihomoNodes(id: number): Promise<MihomoNodesResponse> {
+  const { data } = await apiClient.get<MihomoNodesResponse>(`/admin/proxies/${id}/nodes`)
+  return data
+}
+
+export async function selectMihomoNode(id: number, name: string): Promise<MihomoNodesResponse> {
+  const { data } = await apiClient.put<MihomoNodesResponse>(`/admin/proxies/${id}/nodes/select`, { name })
+  return data
+}
+
 /**
  * Batch create proxies
  * @param proxies - Array of proxy data to create
@@ -277,6 +288,8 @@ export const proxiesAPI = {
   checkProxyQuality,
   getStats,
   getProxyAccounts,
+  getMihomoNodes,
+  selectMihomoNode,
   batchCreate,
   batchDelete,
   exportData,

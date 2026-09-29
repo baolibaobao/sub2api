@@ -326,6 +326,16 @@
                 <span class="text-xs">{{ t('admin.proxies.qualityCheck') }}</span>
               </button>
               <button
+                v-if="isMihomoProxy(row)"
+                @click="openMihomoNodesModal(row)"
+                :disabled="mihomoNodesLoading && mihomoNodesProxy?.id === row.id"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-violet-50 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-violet-900/20 dark:hover:text-violet-400"
+                :title="t('admin.proxies.nodeList')"
+              >
+                <Icon name="server" size="sm" :class="mihomoNodesLoading && mihomoNodesProxy?.id === row.id ? 'animate-pulse' : ''" />
+                <span class="text-xs">{{ t('admin.proxies.nodes') }}</span>
+              </button>
+              <button
                 @click="handleEdit(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
@@ -916,6 +926,80 @@
       </template>
     </BaseDialog>
 
+    <!-- Mihomo Node Selector Dialog -->
+    <BaseDialog
+      :show="showMihomoNodesModal"
+      :title="t('admin.proxies.nodeList')"
+      width="wide"
+      @close="closeMihomoNodesModal"
+    >
+      <div class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-gray-50 px-4 py-3 text-sm dark:bg-dark-800">
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('admin.proxies.selector') }}:</span>
+            <span class="ml-2 font-medium text-gray-900 dark:text-white">{{ mihomoSelector || '-' }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('admin.proxies.currentNode') }}:</span>
+            <span class="ml-2 font-medium text-primary-600 dark:text-primary-400">{{ mihomoCurrentNode || '-' }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="mihomoNodesLoading || !mihomoNodesProxy"
+            :title="t('common.refresh')"
+            @click="mihomoNodesProxy && loadMihomoNodes(mihomoNodesProxy)"
+          >
+            <Icon name="refresh" size="sm" :class="mihomoNodesLoading ? 'animate-spin' : ''" />
+          </button>
+        </div>
+
+        <div v-if="mihomoNodesLoading" class="flex items-center justify-center py-10 text-sm text-gray-500 dark:text-gray-400">
+          <Icon name="refresh" size="md" class="mr-2 animate-spin" />
+          {{ t('common.loading') }}
+        </div>
+        <div v-else-if="mihomoNodesError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+          {{ mihomoNodesError }}
+        </div>
+        <div v-else-if="mihomoNodes.length === 0" class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+          {{ t('admin.proxies.noNodes') }}
+        </div>
+        <div v-else class="max-h-[60vh] overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-600">
+          <div class="grid gap-px bg-gray-200 sm:grid-cols-2 dark:bg-dark-600">
+            <button
+              v-for="node in mihomoNodes"
+              :key="node.name"
+              type="button"
+              class="flex min-w-0 items-center gap-3 bg-white px-4 py-3 text-left transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-dark-900 dark:hover:bg-dark-800"
+              :disabled="!node.is_available || mihomoNodeSwitching !== null"
+              @click="selectMihomoNode(node.name)"
+            >
+              <span
+                class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+                :class="node.is_selected ? 'border-primary-600 bg-primary-600 dark:border-primary-400 dark:bg-primary-400' : 'border-gray-300 dark:border-dark-500'"
+              >
+                <span v-if="node.is_selected" class="h-1.5 w-1.5 rounded-full bg-white dark:bg-dark-900"></span>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-medium text-gray-900 dark:text-white">{{ node.name }}</span>
+                <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ node.type }}</span>
+              </span>
+              <Icon v-if="mihomoNodeSwitching === node.name" name="refresh" size="sm" class="shrink-0 animate-spin text-primary-600" />
+              <span v-else-if="node.is_selected" class="badge badge-success shrink-0">{{ t('admin.proxies.selected') }}</span>
+              <span v-else-if="!node.is_available" class="badge badge-danger shrink-0">{{ t('admin.proxies.unavailable') }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end">
+          <button type="button" @click="closeMihomoNodesModal" class="btn btn-secondary">
+            {{ t('common.close') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <!-- Proxy Accounts Dialog -->
     <BaseDialog
       :show="showAccountsModal"
@@ -968,7 +1052,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult } from '@/types'
+import type { MihomoNode, Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1067,6 +1151,7 @@ const showDeleteDialog = ref(false)
 const showBatchDeleteDialog = ref(false)
 const showExportDataDialog = ref(false)
 const showAccountsModal = ref(false)
+const showMihomoNodesModal = ref(false)
 const submitting = ref(false)
 const exportingData = ref(false)
 const testingProxyIds = ref<Set<number>>(new Set())
@@ -1103,6 +1188,13 @@ const deletingProxy = ref<Proxy | null>(null)
 const showQualityReportDialog = ref(false)
 const qualityReportProxy = ref<Proxy | null>(null)
 const qualityReport = ref<ProxyQualityCheckResult | null>(null)
+const mihomoNodesProxy = ref<Proxy | null>(null)
+const mihomoNodes = ref<MihomoNode[]>([])
+const mihomoSelector = ref('')
+const mihomoCurrentNode = ref('')
+const mihomoNodesLoading = ref(false)
+const mihomoNodesError = ref('')
+const mihomoNodeSwitching = ref<string | null>(null)
 
 // Batch import state
 const createMode = ref<'standard' | 'batch'>('standard')
@@ -1629,6 +1721,67 @@ const handleQualityCheck = async (proxy: Proxy) => {
     console.error('Error checking proxy quality:', error)
   } finally {
     stopQualityCheckingProxy(proxy.id)
+  }
+}
+
+const isMihomoProxy = (proxy: Proxy) => {
+  const name = proxy.name.toLowerCase()
+  const host = proxy.host.toLowerCase()
+  return proxy.id === 1 || name.includes('mihomo') || (host === 'mihomo' && proxy.port === 7890)
+}
+
+const loadMihomoNodes = async (proxy: Proxy) => {
+  mihomoNodesLoading.value = true
+  mihomoNodesError.value = ''
+  try {
+    const result = await adminAPI.proxies.getMihomoNodes(proxy.id)
+    mihomoNodes.value = result.nodes
+    mihomoSelector.value = result.selector
+    mihomoCurrentNode.value = result.current
+  } catch (error: any) {
+    mihomoNodesError.value = error.response?.data?.message || error.response?.data?.detail || t('admin.proxies.nodesUnavailable')
+    mihomoNodes.value = []
+    console.error('Error loading Mihomo nodes:', error)
+  } finally {
+    mihomoNodesLoading.value = false
+  }
+}
+
+const openMihomoNodesModal = async (proxy: Proxy) => {
+  mihomoNodesProxy.value = proxy
+  mihomoNodes.value = []
+  mihomoSelector.value = ''
+  mihomoCurrentNode.value = ''
+  showMihomoNodesModal.value = true
+  await loadMihomoNodes(proxy)
+}
+
+const closeMihomoNodesModal = () => {
+  showMihomoNodesModal.value = false
+  mihomoNodesProxy.value = null
+  mihomoNodes.value = []
+  mihomoSelector.value = ''
+  mihomoCurrentNode.value = ''
+  mihomoNodesError.value = ''
+  mihomoNodeSwitching.value = null
+}
+
+const selectMihomoNode = async (name: string) => {
+  if (!mihomoNodesProxy.value || mihomoNodeSwitching.value !== null) return
+  if (name === mihomoCurrentNode.value) return
+  mihomoNodeSwitching.value = name
+  try {
+    const result = await adminAPI.proxies.selectMihomoNode(mihomoNodesProxy.value.id, name)
+    mihomoNodes.value = result.nodes
+    mihomoSelector.value = result.selector
+    mihomoCurrentNode.value = result.current
+    appStore.showSuccess(t('admin.proxies.nodeSelected', { name: result.current }))
+  } catch (error: any) {
+    const message = error.response?.data?.message || error.response?.data?.detail || t('admin.proxies.nodeSwitchFailed')
+    appStore.showError(message)
+    console.error('Error switching Mihomo node:', error)
+  } finally {
+    mihomoNodeSwitching.value = null
   }
 }
 

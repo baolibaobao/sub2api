@@ -962,6 +962,19 @@ export interface Proxy {
   updated_at: string
 }
 
+export interface MihomoNode {
+  name: string
+  type: string
+  is_available: boolean
+  is_selected: boolean
+}
+
+export interface MihomoNodesResponse {
+  selector: string
+  current: string
+  nodes: MihomoNode[]
+}
+
 export interface ProxyAccountSummary {
   id: number
   name: string

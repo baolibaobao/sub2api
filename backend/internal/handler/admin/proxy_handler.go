@@ -16,12 +16,14 @@ import (
 // ProxyHandler handles admin proxy management
 type ProxyHandler struct {
 	adminService service.AdminService
+	mihomo       *mihomoNodeClient
 }
 
 // NewProxyHandler creates a new admin proxy handler
 func NewProxyHandler(adminService service.AdminService) *ProxyHandler {
 	return &ProxyHandler{
 		adminService: adminService,
+		mihomo:       newMihomoNodeClient(),
 	}
 }
 
@@ -310,6 +312,57 @@ func (h *ProxyHandler) GetStats(c *gin.Context) {
 		"success_rate":    100.0,
 		"average_latency": 0,
 	})
+}
+
+// GetMihomoNodes returns the selectable nodes from the server-side Mihomo
+// controller without exposing the controller address or node credentials.
+// GET /api/v1/admin/proxies/:id/nodes
+func (h *ProxyHandler) GetMihomoNodes(c *gin.Context) {
+	proxyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid proxy ID")
+		return
+	}
+	if !h.mihomo.isConfiguredProxy(proxyID) {
+		response.NotFound(c, "Mihomo node control is not enabled for this proxy")
+		return
+	}
+
+	result, err := h.mihomo.ListNodes(c.Request.Context())
+	if err != nil {
+		response.Error(c, 502, "Mihomo controller is unavailable")
+		return
+	}
+	response.Success(c, result)
+}
+
+// SelectMihomoNode switches the shared Mihomo selector used by this proxy.
+// PUT /api/v1/admin/proxies/:id/nodes/select
+func (h *ProxyHandler) SelectMihomoNode(c *gin.Context) {
+	proxyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid proxy ID")
+		return
+	}
+	if !h.mihomo.isConfiguredProxy(proxyID) {
+		response.NotFound(c, "Mihomo node control is not enabled for this proxy")
+		return
+	}
+
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid node selection")
+		return
+	}
+
+	result, err := h.mihomo.SelectNode(c.Request.Context(), req.Name)
+	if err != nil {
+		response.Error(c, 502, "Mihomo node switch failed")
+		return
+	}
+	response.Success(c, result)
 }
 
 // GetProxyAccounts handles getting accounts using a proxy
