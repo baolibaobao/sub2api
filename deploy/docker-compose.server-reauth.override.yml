@@ -4,6 +4,8 @@ services:
       - ./data:/app/data:Z
       - ./bin/sub2api:/app/sub2api:ro
       - ./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro
+      - ./reauth-runtime/runtime-bundle:/opt/reauth-runtime:ro
+      - ./reauth-runtime/reauth-runtime-payload/tosub2-transport:/app/resources/tosub2-transport:ro
     secrets:
       - source: openai_reauth_keyring
         target: reauth-keyring.json
@@ -14,6 +16,14 @@ services:
       - OPENAI_REAUTH_KEYRING_FILE=/run/sub2api-secrets/keyring.json
       - OPENAI_OAUTH_TOSUB2_TRANSPORT_ENABLED=false
       - OPENAI_OAUTH_TOSUB2_CLOUDFLARE_SOLVER_ENABLED=false
+      - OPENAI_OAUTH_TOSUB2_HELPER_PATH=/app/resources/tosub2-transport/tls_transport.py
+      - OPENAI_OAUTH_TOSUB2_PYTHON=/opt/reauth-runtime/usr/local/bin/python3.13
+      - OPENAI_OAUTH_TOSUB2_NODE=/opt/reauth-runtime/usr/local/bin/node
+      - PYTHONHOME=/opt/reauth-runtime/usr/local
+      - PYTHONPATH=/opt/reauth-runtime/python-site
+      - NODE_PATH=/opt/reauth-runtime/node_modules
+      - LD_LIBRARY_PATH=/opt/reauth-runtime/usr/lib:/opt/reauth-runtime/lib:/opt/reauth-runtime/usr/local/lib
+      - PYTHONDONTWRITEBYTECODE=1
 
 secrets:
   openai_reauth_keyring:
