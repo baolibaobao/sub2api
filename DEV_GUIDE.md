@@ -280,9 +280,8 @@ git rebase upstream/main
 
 #### Fork 分支清理提醒（2026-09-23）
 
-- 当前官方基线为 `main`；自定义开发保存在 `custom/sub2api-0.2.8`。
-- `codex/custom-features-before-0.2.8-20260923` 是升级前的临时快照。现在保留；下一次完成官方版本同步，并确认自定义分支包含所需提交且部署验证通过后，删除该远端快照分支并清理本地跟踪引用。
-- 删除前用 `git merge-base --is-ancestor codex/custom-features-before-0.2.8-20260923 <新自定义分支>` 确认快照提交仍可从新自定义分支到达。不要删除活动自定义分支或官方 `main`。
+- 当前官方基线为 `v0.2.11`；自定义开发保存在 `codex/merge-v0.2.8-custom`。
+- 升级前的 `codex/custom-features-before-0.2.8-20260923` 临时快照已不再作为活动分支；删除前已确认其提交仍可从当前自定义分支到达。不要删除活动自定义分支或官方 `main`。
 
 ### 前端操作
 

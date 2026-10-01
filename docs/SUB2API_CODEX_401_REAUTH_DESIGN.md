@@ -4,7 +4,7 @@
 
 为管理员显式启用的 OpenAI/Codex OAuth 账号增加自动恢复流程：Sub2API 每 5 分钟检查账号的上游认证状态；确认账号因授权失效而进入 401 状态后，关联该账号的登录资料，排队执行一次正常登录与 OAuth 重新授权；成功后只更新该账号的 OAuth 凭据，并恢复账号调度。
 
-本设计以 Sub2API v0.2.8 为代码基线。第一阶段只覆盖 OpenAI/Codex OAuth 账号，不扩展到密码/API Key 账号或其他平台。
+本设计以 Sub2API v0.2.11 为当前代码基线。第一阶段只覆盖 OpenAI/Codex OAuth 账号，不扩展到密码/API Key 账号或其他平台。
 
 ## 2. 术语与现有机制
 
@@ -13,7 +13,7 @@
 - **401 候选**：必须是 Sub2API 能归因到某个上游账号的认证失效状态；客户端 API Key 错误、网络失败、限流等不能触发登录。
 - **SMS 参考项目**：[maile456/codex-auto-sms-receiver](https://github.com/maile456/codex-auto-sms-receiver) README 描述了登录/OAuth 授权、验证码处理、凭据管理和 Sub2API 格式导出。当前 README 没有描述 Sub2API 账号定时同步或可供 Sub2API 调用的重授权 API，因此集成前必须检查其实际接口；不能把“可导出 Sub2API 文件”视为“已支持自动回写”。
 
-相关现有代码入口（实现前再次核对 v0.2.8 分支）：
+相关现有代码入口（实现前再次核对 v0.2.11 分支）：
 
 - `backend/internal/handler/admin/account_handler.go`：管理员账号 OAuth 凭据刷新和应用路径。
 - `backend/internal/repository/openai_oauth_service.go`：OpenAI OAuth refresh-token 请求。
@@ -21,7 +21,7 @@
 
 ## 2.1 阶段 0 现状审计（2026-09-23）
 
-审计基线：Sub2API tag `v0.2.8`，当前自定义分支审计时 HEAD 为 `7af31227d1dbc7dd4caa6efa85ce9a3bfb7a06e5`。本节记录现有实现，不代表新增行为。
+审计基线：Sub2API tag `v0.2.11`，当前自定义分支已在该官方版本之上保留自定义功能。本节记录现有实现，不代表新增行为。
 
 | 上游结果/条件 | 当前 Sub2API 行为 | 是否进入普通 refresh 扫描 |
 | --- | --- | --- |
@@ -329,7 +329,7 @@ Cloudflare solver 只在响应中明确存在 challenge 标记时运行；每个
 
 | 阶段 | 任务 | 交付物与验收条件 | 状态 |
 | --- | --- | --- | --- |
-| 0. 现状审计 | 固定 v0.2.8 基线；追踪账号 401 状态从上游响应到数据库/日志的记录路径；梳理现有 OAuth 刷新、凭据写回、token cache 和调度器。 | 形成代码路径与状态分类表；能区分普通 token 过期、OAuth 会话撤销、调用方密钥错误、403/429 和网络故障。 | 已完成；详见 2.1 |
+| 0. 现状审计 | 固定 v0.2.11 基线；追踪账号 401 状态从上游响应到数据库/日志的记录路径；梳理现有 OAuth 刷新、凭据写回、token cache 和调度器。 | 形成代码路径与状态分类表；能区分普通 token 过期、OAuth 会话撤销、调用方密钥错误、403/429 和网络故障。 | 已完成；详见 2.1 |
 | 1. SMS 项目接口审计 | 检查 `codex-auto-sms-receiver` 的许可证、登录/OAuth 流程、验证码来源、后台运行能力，以及是否有稳定 API/CLI/任务接口。 | 明确 Sub2API 与它的调用契约。若没有机器接口，先决定新增本机 worker/API；不把文件导出或 UI 自动点击当成集成接口。 | 已完成；决定由 Sub2API 管理并调用私有 worker，详见 2.2 |
 | 2. 数据模型与密钥方案 | 固定 worker 最小输入/输出契约，设计 `account_id` 绑定、profile/job 表、外部密钥环和脱敏 DTO。 | migration、AES-GCM profile repository、版本化 `schema_version/login_flow`、管理员 profile/status DTO 已实现；默认关闭；登录资料不进明文列或审计日志。软删除 migration 会擦除账号凭据并清理该账号 usage logs、profile/job；主/standalone Compose 均提供 file-secret + tmpfs overlay。仍需目标 PostgreSQL/Compose 运行验收。 | 代码与静态检查已补齐；运行时集成验证待做 |
 | 3. 401 分类与周期调度 | 复用现有默认 5 分钟 refresh 扫描；持久化 OpenAI OAuth 401 即使 expiry 尚远也进入标准 refresh-token 流程。 | 已覆盖目标 OpenAI OAuth、active、refresh token 和 `OAuth 401:` 原因；非 OAuth/API Key、其他平台/错误原因及永久错误均不触发。不可恢复后的 reauth 任务由阶段 4 接管。 | 已完成（2026-09-23） |
